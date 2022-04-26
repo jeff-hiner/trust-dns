@@ -547,7 +547,7 @@ fn main() {
     // Ideally the processing would be n-threads for receiving, which hand off to m-threads for
     //  request handling. It would generally be the case that n <= m.
     info!("Server starting up");
-    match runtime.block_on(server.block_until_done()) {
+    match runtime.block_on(server.block_until_done(None)) {
         Ok(()) => {
             // we're exiting for some reason...
             info!("Trust-DNS {} stopping", trust_dns_client::version());

@@ -100,6 +100,7 @@ trust-dns-client= { version = "0.22.0", path = "../client" }
 trust-dns-proto = { version = "0.22.0", path = "../proto" }
 trust-dns-recursor = { version = "0.22.0", path = "../recursor", features = ["serde-config"], optional = true }
 trust-dns-resolver = { version = "0.22.0", path = "../resolver", features = ["serde-config"], optional = true }
+scopeguard = "1.1.0"
 
 [dev-dependencies]
 tokio = { version="1.21", features = ["macros", "rt"] }

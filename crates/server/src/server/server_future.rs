@@ -14,6 +14,7 @@ use std::{
 use futures_util::StreamExt;
 #[cfg(feature = "dns-over-rustls")]
 use rustls::{Certificate, PrivateKey};
+use tokio::sync::{Mutex, SemaphorePermit};
 use tokio::{net, task::JoinSet};
 use tracing::{debug, info, warn};
 use trust_dns_proto::rr::Record;
@@ -681,8 +682,27 @@ impl<T: RequestHandler> ServerFuture<T> {
     }
 
     /// This will run until a background task of the trust_dns_server ends.
-    pub async fn block_until_done(mut self) -> Result<(), ProtoError> {
-        let result = self.join_set.join_next().await;
+    pub async fn block_until_done(
+        self,
+        maybe_permit: Option<SemaphorePermit<'static>>,
+    ) -> Result<(), ProtoError> {
+        // this allows us to handle the shutdown process out-of-band with the rest of execution
+        // here, fixing the colors issue for drop
+        let join_set = Arc::new(Mutex::new(self.join_set));
+
+        // To make this cancel safe, we are creating a scope guard which will acquire and shut down
+        // the joinset (and release the semaphore) when we drop this future/task
+        let _guard = scopeguard::guard(join_set.clone(), |set| {
+            if let Some(permit) = maybe_permit {
+                tokio::spawn(async move {
+                    let guard = permit;
+                    set.lock().await.shutdown().await;
+                    drop(guard);
+                });
+            }
+        });
+
+        let result = join_set.lock().await.join_next().await;
 
         match result {
             None => {
@@ -935,7 +955,7 @@ mod tests {
             let mut server_future = ServerFuture::new(Catalog::new());
             let udp_socket = tokio::net::UdpSocket::bind(bind_addr).await.unwrap();
             server_future.register_socket(udp_socket);
-            server_future.block_until_done().await
+            server_future.block_until_done(None).await
         });
 
         abort_handle.abort();
