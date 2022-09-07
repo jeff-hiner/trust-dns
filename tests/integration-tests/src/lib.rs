@@ -36,7 +36,7 @@ use trust_dns_server::{
     server::{Protocol, Request, RequestHandler, ResponseHandler, ResponseInfo},
 };
 
-pub mod authority;
+pub mod example_authority;
 pub mod mock_client;
 #[cfg(feature = "dns-over-rustls")]
 pub mod tls_client_connection;

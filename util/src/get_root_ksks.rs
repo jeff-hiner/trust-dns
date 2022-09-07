@@ -39,7 +39,8 @@ fn args() -> ArgMatches {
 
 /// Run the get_root_ksks program
 pub fn main() {
-    env_logger::init();
+    trust_dns_util::logger(env!("CARGO_BIN_NAME"), Some(tracing::Level::INFO));
+
     let _matches = args();
 
     println!("querying for root key-signing-keys, ie dnskeys");

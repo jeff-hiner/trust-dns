@@ -27,9 +27,9 @@ use std::str::FromStr;
 
 use clap::{Arg, ArgMatches, Command};
 use data_encoding::BASE64;
-use log::info;
 use openssl::bn::BigNum;
 use openssl::rsa::Rsa;
+use tracing::{info, warn, Level};
 
 use trust_dns_client::rr::dnssec::Algorithm;
 
@@ -59,13 +59,14 @@ fn args() -> ArgMatches {
 
 /// Run the bind_dnskey_to_pem program
 pub fn main() {
-    env_logger::init();
+    trust_dns_util::logger(env!("CARGO_BIN_NAME"), Some(Level::INFO));
+
     let matches = args();
 
     let key_path = matches.value_of("key").unwrap();
     let output_path = matches.value_of("output").unwrap();
 
-    info!("Reading private key: {}", key_path);
+    tracing::info!("Reading private key: {}", key_path);
 
     let key_file = File::open(key_path).expect("private key file could not be opened");
 
@@ -82,7 +83,7 @@ pub fn main() {
         panic!("Private-key-format line not found: {}", next_line);
     }
     if "v1.2" != value {
-        println!("WARNING: un-tested version {:?}", value);
+        warn!("WARNING: un-tested version {:?}", value);
     }
 
     // algorithm

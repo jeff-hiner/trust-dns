@@ -4,7 +4,7 @@ Trust-DNS provides a binary for hosting or forwarding DNS zones.
 
 This a named implementation for DNS zone hosting. It is capable of performing signing all records in the zone for server DNSSec RRSIG records associated with all records in a zone. There is also a `named` binary that can be generated from the library with `cargo install trust-dns`. Dynamic updates are supported via `SIG0` (an mTLS authentication method is under development).
 
-## Features 
+## Features
 
 - Dynamic Update with sqlite journaling backend (SIG0)
 - DNSSEC online signing (NSEC not NSEC3)
@@ -32,7 +32,7 @@ Currently the root key is hardcoded into the system. This gives validation of
  appear to rate limit the connections, validating RRSIG records back to the root
  can require a significant number of additional queries for those records.
 
-Zones will be automatically resigned on any record updates via dynamic DNS. To enable DNSSEC, one of the features `dnssec-openssl` or `dnssec-rustls` must be enabled.
+Zones will be automatically resigned on any record updates via dynamic DNS. To enable DNSSEC, one of the features `dnssec-openssl` or `dnssec-ring` must be enabled.
 
 ## Future goals
 
@@ -44,7 +44,7 @@ Zones will be automatically resigned on any record updates via dynamic DNS. To e
 
 ## Minimum Rust Version
 
-The current minimum rustc version for this project is `1.54`
+The current minimum rustc version for this project is `1.59`
 
 ## Versioning
 

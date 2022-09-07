@@ -7,10 +7,11 @@
 
 #![cfg(feature = "trust-dns-resolver")]
 
-//! Forwarding, resolver, related types
+//! Forwarding resolver related types
 
 mod authority;
 mod config;
 
 pub use self::authority::ForwardAuthority;
+pub use self::authority::ForwardLookup;
 pub use self::config::ForwardConfig;

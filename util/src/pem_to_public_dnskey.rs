@@ -24,8 +24,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 
 use clap::{Arg, ArgMatches, Command};
-use log::info;
 use openssl::pkey::PKey;
+use tracing::info;
 
 use trust_dns_client::rr::dnssec::{KeyPair, Public};
 
@@ -57,7 +57,8 @@ fn args() -> ArgMatches {
 
 /// Run the pem_to_public_dnskey program
 pub fn main() {
-    env_logger::init();
+    trust_dns_util::logger(env!("CARGO_BIN_NAME"), Some(tracing::Level::INFO));
+
     let matches = args();
 
     let key_path = matches.value_of("key").unwrap();

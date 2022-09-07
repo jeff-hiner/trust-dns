@@ -250,8 +250,6 @@
 extern crate cfg_if;
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate log;
 #[cfg(feature = "serde-config")]
 #[macro_use]
 extern crate serde;
@@ -260,7 +258,7 @@ pub extern crate trust_dns_proto as proto;
 mod async_resolver;
 pub mod caching_client;
 pub mod config;
-mod dns_lru;
+pub mod dns_lru;
 pub mod dns_sd;
 pub mod error;
 mod hosts;
@@ -268,7 +266,7 @@ mod hosts;
 mod https;
 pub mod lookup;
 pub mod lookup_ip;
-#[doc(hidden)]
+// TODO: consider #[doc(hidden)]
 pub mod name_server;
 #[cfg(feature = "dns-over-quic")]
 mod quic;

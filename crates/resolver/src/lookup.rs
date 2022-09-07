@@ -99,7 +99,7 @@ impl Lookup {
         self.records.len()
     }
 
-    #[cfg(test)]
+    /// Returns the records list
     pub fn records(&self) -> &[Record] {
         self.records.as_ref()
     }
@@ -107,8 +107,8 @@ impl Lookup {
     /// Clones the inner vec, appends the other vec
     pub(crate) fn append(&self, other: Self) -> Self {
         let mut records = Vec::with_capacity(self.len() + other.len());
-        records.extend_from_slice(&*self.records);
-        records.extend_from_slice(&*other.records);
+        records.extend_from_slice(&self.records);
+        records.extend_from_slice(&other.records);
 
         // Choose the sooner deadline of the two lookups.
         let valid_until = min(self.valid_until(), other.valid_until());
@@ -193,17 +193,17 @@ impl<C: DnsHandle<Error = ResolveError> + Sync, P: ConnectionProvider<Conn = C>>
 
     fn is_verifying_dnssec(&self) -> bool {
         match *self {
-            LookupEither::Retry(ref c) => c.is_verifying_dnssec(),
+            Self::Retry(ref c) => c.is_verifying_dnssec(),
             #[cfg(feature = "dnssec")]
-            LookupEither::Secure(ref c) => c.is_verifying_dnssec(),
+            Self::Secure(ref c) => c.is_verifying_dnssec(),
         }
     }
 
     fn send<R: Into<DnsRequest> + Unpin + Send + 'static>(&mut self, request: R) -> Self::Response {
         match *self {
-            LookupEither::Retry(ref mut c) => c.send(request),
+            Self::Retry(ref mut c) => c.send(request),
             #[cfg(feature = "dnssec")]
-            LookupEither::Secure(ref mut c) => c.send(request),
+            Self::Secure(ref mut c) => c.send(request),
         }
     }
 }
@@ -603,6 +603,26 @@ pub mod tests {
             .map(|r| r.to_ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
+        );
+    }
+
+    #[test]
+    fn test_lookup_slice() {
+        assert_eq!(
+            Record::data(
+                &block_on(LookupFuture::lookup(
+                    vec![Name::root()],
+                    RecordType::A,
+                    DnsRequestOptions::default(),
+                    CachingClient::new(0, mock(vec![v4_message()]), false),
+                ))
+                .unwrap()
+                .records()[0]
+            )
+            .unwrap()
+            .to_ip_addr()
+            .unwrap(),
+            Ipv4Addr::new(127, 0, 0, 1)
         );
     }
 

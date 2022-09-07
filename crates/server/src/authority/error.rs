@@ -28,9 +28,14 @@ pub enum LookupError {
     ResponseCode(ResponseCode),
     /// Resolve Error
     #[cfg(feature = "trust-dns-resolver")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
-    #[error("Resolution error: {0}")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "resolver")))]
+    #[error("Forward resolution error: {0}")]
     ResolveError(#[from] ResolveError),
+    /// Recursive Resolver Error
+    #[cfg(feature = "trust-dns-recursor")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "recursor")))]
+    #[error("Recursive resolution error: {0}")]
+    RecursiveError(#[from] trust_dns_recursor::Error),
     /// An underlying IO error occurred
     #[error("io error: {0}")]
     Io(io::Error),
@@ -44,12 +49,12 @@ impl LookupError {
 
     /// This is a non-existent domain name
     pub fn is_nx_domain(&self) -> bool {
-        matches!(*self, LookupError::ResponseCode(ResponseCode::NXDomain))
+        matches!(*self, Self::ResponseCode(ResponseCode::NXDomain))
     }
 
     /// This is a non-existent domain name
     pub fn is_refused(&self) -> bool {
-        matches!(*self, LookupError::ResponseCode(ResponseCode::Refused))
+        matches!(*self, Self::ResponseCode(ResponseCode::Refused))
     }
 }
 

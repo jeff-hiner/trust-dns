@@ -12,11 +12,13 @@ use serde::Deserialize;
 use crate::store::file::FileConfig;
 #[cfg(feature = "trust-dns-resolver")]
 use crate::store::forwarder::ForwardConfig;
+#[cfg(feature = "trust-dns-recursor")]
+use crate::store::recursor::RecursiveConfig;
 #[cfg(feature = "sqlite")]
 use crate::store::sqlite::SqliteConfig;
 
 /// Enumeration over all Store configurations
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 #[serde(tag = "type")]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -27,8 +29,12 @@ pub enum StoreConfig {
     #[cfg(feature = "sqlite")]
     #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
     Sqlite(SqliteConfig),
-    /// Forwarder, aka Resolver
+    /// Forwarding Resolver
     #[cfg(feature = "trust-dns-resolver")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "trust-dns-resolver")))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "resolver")))]
     Forward(ForwardConfig),
+    /// Recursive Resolver
+    #[cfg(feature = "trust-dns-recursor")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "recursor")))]
+    Recursor(RecursiveConfig),
 }

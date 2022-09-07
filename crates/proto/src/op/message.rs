@@ -9,7 +9,7 @@
 
 use std::{fmt, iter, mem, ops::Deref, sync::Arc};
 
-use log::{debug, warn};
+use tracing::{debug, warn};
 
 use crate::{
     error::*,
@@ -61,7 +61,7 @@ use crate::{
 ///
 /// By default Message is a Query. Use the Message::as_update() to create and update, or
 ///  Message::new_update()
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Message {
     header: Header,
     queries: Vec<Query>,
@@ -411,6 +411,14 @@ impl Message {
     ///  record to create the EDNS `ResponseCode`
     pub fn response_code(&self) -> ResponseCode {
         self.header.response_code()
+    }
+
+    /// Returns the query from this Message.
+    ///
+    /// In almost all cases, a Message will only contain one query. This is a convenience function to get the single query.
+    /// See the alternative `queries*` methods for the raw set of queries in the Message
+    pub fn query(&self) -> Option<&Query> {
+        self.queries.first()
     }
 
     /// ```text
@@ -764,7 +772,7 @@ impl Message {
 ///  let msg = Message::new();
 ///  let MessageParts { queries, .. } = msg.into_parts();
 /// ```
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct MessageParts {
     /// message header
     pub header: Header,
@@ -1078,12 +1086,17 @@ impl fmt::Display for Message {
 
         writeln!(f, "; query")?;
         write_query(self.queries(), f)?;
-        writeln!(f, "; answers {}", self.answer_count())?;
-        write_slice(self.answers(), f)?;
-        writeln!(f, "; nameservers {}", self.name_server_count())?;
-        write_slice(self.name_servers(), f)?;
-        writeln!(f, "; additionals {}", self.additional_count())?;
-        write_slice(self.additionals(), f)?;
+
+        if self.header().message_type() == MessageType::Response
+            || self.header().op_code() == OpCode::Update
+        {
+            writeln!(f, "; answers {}", self.answer_count())?;
+            write_slice(self.answers(), f)?;
+            writeln!(f, "; nameservers {}", self.name_server_count())?;
+            write_slice(self.name_servers(), f)?;
+            writeln!(f, "; additionals {}", self.additional_count())?;
+            write_slice(self.additionals(), f)?;
+        }
 
         Ok(())
     }

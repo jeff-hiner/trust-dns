@@ -6,6 +6,8 @@
 // copied, modified, or distributed except according to those terms.
 
 //! Configuration for a resolver
+#![allow(clippy::use_self)]
+
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ops::{Deref, DerefMut};
@@ -297,16 +299,16 @@ pub enum Protocol {
 impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let protocol = match self {
-            Protocol::Udp => "udp",
-            Protocol::Tcp => "tcp",
+            Self::Udp => "udp",
+            Self::Tcp => "tcp",
             #[cfg(feature = "dns-over-tls")]
-            Protocol::Tls => "tls",
+            Self::Tls => "tls",
             #[cfg(feature = "dns-over-https")]
-            Protocol::Https => "https",
+            Self::Https => "https",
             #[cfg(feature = "dns-over-quic")]
-            Protocol::Quic => "quic",
+            Self::Quic => "quic",
             #[cfg(feature = "mdns")]
-            Protocol::Mdns => "mdns",
+            Self::Mdns => "mdns",
         };
 
         f.write_str(protocol)
@@ -317,17 +319,17 @@ impl Protocol {
     /// Returns true if this is a datagram oriented protocol, e.g. UDP
     pub fn is_datagram(self) -> bool {
         match self {
-            Protocol::Udp => true,
-            Protocol::Tcp => false,
+            Self::Udp => true,
+            Self::Tcp => false,
             #[cfg(feature = "dns-over-tls")]
-            Protocol::Tls => false,
+            Self::Tls => false,
             #[cfg(feature = "dns-over-https")]
-            Protocol::Https => false,
+            Self::Https => false,
             // TODO: if you squint, this is true...
             #[cfg(feature = "dns-over-quic")]
-            Protocol::Quic => true,
+            Self::Quic => true,
             #[cfg(feature = "mdns")]
-            Protocol::Mdns => true,
+            Self::Mdns => true,
         }
     }
 
@@ -339,16 +341,16 @@ impl Protocol {
     /// Is this an encrypted protocol, i.e. TLS or HTTPS
     pub fn is_encrypted(self) -> bool {
         match self {
-            Protocol::Udp => false,
-            Protocol::Tcp => false,
+            Self::Udp => false,
+            Self::Tcp => false,
             #[cfg(feature = "dns-over-tls")]
-            Protocol::Tls => true,
+            Self::Tls => true,
             #[cfg(feature = "dns-over-https")]
-            Protocol::Https => true,
+            Self::Https => true,
             #[cfg(feature = "dns-over-quic")]
-            Protocol::Quic => true,
+            Self::Quic => true,
             #[cfg(feature = "mdns")]
-            Protocol::Mdns => false,
+            Self::Mdns => false,
         }
     }
 }
@@ -417,6 +419,21 @@ pub struct NameServerConfig {
     pub bind_addr: Option<SocketAddr>,
 }
 
+impl NameServerConfig {
+    /// Constructs a Nameserver configuration with some basic defaults
+    pub fn new(socket_addr: SocketAddr, protocol: Protocol) -> Self {
+        Self {
+            socket_addr,
+            protocol,
+            trust_nx_responses: true,
+            tls_dns_name: None,
+            #[cfg(feature = "dns-over-rustls")]
+            tls_config: None,
+            bind_addr: None,
+        }
+    }
+}
+
 impl fmt::Display for NameServerConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:", self.protocol)?;
@@ -475,6 +492,11 @@ impl NameServerConfigGroup {
             #[cfg(feature = "dns-over-rustls")]
             None,
         )
+    }
+
+    /// Returns the inner vec of configs
+    pub fn into_inner(self) -> Vec<NameServerConfig> {
+        self.0
     }
 
     /// Configure a NameServer address and port
@@ -729,6 +751,25 @@ impl Default for LookupIpStrategy {
     }
 }
 
+/// The strategy for establishing the query order of name servers in a pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde-config", derive(Serialize, Deserialize))]
+pub enum ServerOrderingStrategy {
+    /// Servers are ordered based on collected query statistics. The ordering
+    /// may vary over time.
+    QueryStatistics,
+    /// The order provided to the resolver is used. The ordering does not vary
+    /// over time.
+    UserProvidedOrder,
+}
+
+impl Default for ServerOrderingStrategy {
+    /// Returns [`ServerOrderingStrategy::QueryStatistics`] as the default.
+    fn default() -> Self {
+        Self::QueryStatistics
+    }
+}
+
 /// Configuration for the Resolver
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(
@@ -740,9 +781,8 @@ impl Default for LookupIpStrategy {
 #[non_exhaustive]
 pub struct ResolverOpts {
     /// Sets the number of dots that must appear (unless it's a final dot representing the root)
-    ///  that must appear before a query is assumed to include the TLD. The default is one, which
-    ///  means that `www` would never be assumed to be a TLD, and would always be appended to either
-    ///  the search
+    ///  before a query is assumed to include the TLD. The default is one, which means that `www`
+    ///  would never be assumed to be a TLD, and would always be appended to either the search
     pub ndots: usize,
     /// Specify the timeout for a request. Defaults to 5 seconds
     pub timeout: Duration,
@@ -796,6 +836,14 @@ pub struct ResolverOpts {
     pub preserve_intermediates: bool,
     /// Try queries over TCP if they fail over UDP.
     pub try_tcp_on_error: bool,
+    /// The server ordering strategy that the resolver should use.
+    pub server_ordering_strategy: ServerOrderingStrategy,
+    /// Request upstream recursive resolvers to not perform any recursion.
+    ///
+    /// This is true by default, disabling this is useful for requesting single records, but may prevent successful resolution.
+    pub recursion_desired: bool,
+    /// This is true by default, disabling this is useful for requesting single records, but may prevent successful resolution.
+    pub authentic_data: bool,
 }
 
 impl Default for ResolverOpts {
@@ -824,6 +872,9 @@ impl Default for ResolverOpts {
             preserve_intermediates: true,
 
             try_tcp_on_error: false,
+            server_ordering_strategy: ServerOrderingStrategy::default(),
+            recursion_desired: true,
+            authentic_data: false,
         }
     }
 }

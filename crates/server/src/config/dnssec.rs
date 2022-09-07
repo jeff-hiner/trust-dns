@@ -24,7 +24,7 @@ use crate::client::rr::{
 };
 
 /// Key pair configuration for DNSSec keys for signing a zone
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct KeyConfig {
     /// file path to the key
     pub key_path: String,
@@ -168,7 +168,7 @@ impl KeyConfig {
 }
 
 /// Certificate format of the file being read
-#[derive(Deserialize, PartialEq, Debug, Clone, Copy)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CertType {
@@ -185,7 +185,7 @@ impl Default for CertType {
 }
 
 /// Format of the private key file to read
-#[derive(Deserialize, PartialEq, Debug, Clone, Copy)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PrivateKeyType {
@@ -202,7 +202,7 @@ impl Default for PrivateKeyType {
 }
 
 /// Configuration for a TLS certificate
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct TlsCertConfig {
     path: String,
     endpoint_name: String,
@@ -260,7 +260,7 @@ impl TlsCertConfig {
 ///  keys = [ "my_rsa_2048|RSASHA256", "/path/to/my_ed25519|ED25519" ]
 #[cfg(feature = "dnssec")]
 fn load_key(zone_name: Name, key_config: &KeyConfig) -> Result<SigSigner, String> {
-    use log::info;
+    use tracing::info;
 
     use std::convert::TryInto;
     use std::fs::File;
@@ -318,7 +318,7 @@ pub fn load_cert(
     zone_dir: &Path,
     tls_cert_config: &TlsCertConfig,
 ) -> Result<((X509, Option<Stack<X509>>), PKey<Private>), String> {
-    use log::{info, warn};
+    use tracing::{info, warn};
 
     use crate::proto::openssl::tls_server::{
         read_cert_pem, read_cert_pkcs12, read_key_from_der, read_key_from_pkcs8,
@@ -377,7 +377,7 @@ pub fn load_cert(
     zone_dir: &Path,
     tls_cert_config: &TlsCertConfig,
 ) -> Result<(Vec<Certificate>, PrivateKey), String> {
-    use log::{info, warn};
+    use tracing::{info, warn};
 
     use crate::proto::rustls::tls_server::{read_cert, read_key, read_key_from_der};
 

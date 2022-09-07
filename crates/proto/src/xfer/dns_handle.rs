@@ -9,8 +9,8 @@
 use std::error::Error;
 
 use futures_util::stream::Stream;
-use log::debug;
 use rand;
+use tracing::debug;
 
 use crate::op::{Message, MessageType, OpCode, Query};
 use crate::xfer::{DnsRequest, DnsRequestOptions, DnsResponse, SerialMessage};
@@ -80,7 +80,7 @@ fn build_message(query: Query, options: DnsRequestOptions) -> Message {
         .set_id(id)
         .set_message_type(MessageType::Query)
         .set_op_code(OpCode::Query)
-        .set_recursion_desired(true);
+        .set_recursion_desired(options.recursion_desired);
 
     // Extended dns
     if options.use_edns {

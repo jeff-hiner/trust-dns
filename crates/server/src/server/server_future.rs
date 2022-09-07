@@ -12,11 +12,11 @@ use std::{
 };
 
 use futures_util::StreamExt;
-use log::{debug, info, warn};
 #[cfg(feature = "dns-over-rustls")]
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::{Mutex, SemaphorePermit};
 use tokio::{net, task::JoinSet};
+use tracing::{debug, info, warn};
 use trust_dns_proto::rr::Record;
 
 #[cfg(all(feature = "dns-over-openssl", not(feature = "dns-over-rustls")))]
@@ -702,11 +702,11 @@ impl<T: RequestHandler> ServerFuture<T> {
             }
         });
 
-        let result = join_set.lock().await.join_one().await;
+        let result = join_set.lock().await.join_next().await;
 
         match result {
             None => {
-                log::warn!("block_until_done called with no pending tasks");
+                warn!("block_until_done called with no pending tasks");
                 Ok(())
             }
             Some(Ok(x)) => x,

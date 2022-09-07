@@ -17,8 +17,9 @@ use smallvec::SmallVec;
 
 use proto::xfer::{DnsHandle, DnsRequest, DnsResponse, FirstAnswer};
 use proto::Time;
+use tracing::debug;
 
-use crate::config::{ResolverConfig, ResolverOpts};
+use crate::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts, ServerOrderingStrategy};
 use crate::error::{ResolveError, ResolveErrorKind};
 #[cfg(feature = "mdns")]
 use crate::name_server;
@@ -46,7 +47,7 @@ pub struct NameServerPool<
 #[cfg(test)]
 #[cfg(feature = "tokio-runtime")]
 impl NameServerPool<TokioConnection, TokioConnectionProvider> {
-    pub(crate) fn from_config(
+    pub(crate) fn tokio_from_config(
         config: &ResolverConfig,
         options: &ResolverOpts,
         runtime: TokioHandle,
@@ -100,6 +101,33 @@ where
                 NameServer::<C, P>::new_with_provider(ns_config, *options, conn_provider.clone())
             })
             .collect();
+
+        Self {
+            datagram_conns: Arc::from(datagram_conns),
+            stream_conns: Arc::from(stream_conns),
+            #[cfg(feature = "mdns")]
+            mdns_conns: name_server::mdns_nameserver(*options, conn_provider.clone(), false),
+            options: *options,
+        }
+    }
+
+    /// Construct a NameServerPool from a set of name server configs
+    pub fn from_config(
+        name_servers: NameServerConfigGroup,
+        options: &ResolverOpts,
+        conn_provider: P,
+    ) -> Self {
+        let map_config_to_ns = |ns_config| {
+            NameServer::<C, P>::new_with_provider(ns_config, *options, conn_provider.clone())
+        };
+
+        let (datagram, stream): (Vec<_>, Vec<_>) = name_servers
+            .into_inner()
+            .into_iter()
+            .partition(|ns| ns.protocol.is_datagram());
+
+        let datagram_conns: Vec<_> = datagram.into_iter().map(map_config_to_ns).collect();
+        let stream_conns: Vec<_> = stream.into_iter().map(map_config_to_ns).collect();
 
         Self {
             datagram_conns: Arc::from(datagram_conns),
@@ -179,10 +207,13 @@ where
     ) -> Result<DnsResponse, ResolveError> {
         let mut conns: Vec<NameServer<C, P>> = conns.to_vec();
 
-        // select the highest priority connection
-        //   reorder the connections based on current view...
-        //   this reorders the inner set
-        conns.sort_unstable();
+        match opts.server_ordering_strategy {
+            // select the highest priority connection
+            //   reorder the connections based on current view...
+            //   this reorders the inner set
+            ServerOrderingStrategy::QueryStatistics => conns.sort_unstable(),
+            ServerOrderingStrategy::UserProvidedOrder => {}
+        }
         let request_loop = request.clone();
 
         parallel_conn_loop(conns, request_loop, opts).await
@@ -232,7 +263,7 @@ where
                     Ok(response)
                 }
                 Err(e) if opts.try_tcp_on_error || e.is_no_connections() => {
-                    debug!("error received, retrying over TCP");
+                    debug!("error from UDP, retrying over TCP: {}", e);
                     Err(e)
                 }
                 result => return result,
@@ -379,7 +410,7 @@ pub(crate) enum Local {
 
 impl Local {
     fn is_local(&self) -> bool {
-        matches!(*self, Local::ResolveStream(..))
+        matches!(*self, Self::ResolveStream(..))
     }
 
     /// Takes the stream
@@ -389,7 +420,7 @@ impl Local {
     /// Panics if this is in fact a Local::NotMdns
     fn take_stream(self) -> Pin<Box<dyn Stream<Item = Result<DnsResponse, ResolveError>> + Send>> {
         match self {
-            Local::ResolveStream(future) => future,
+            Self::ResolveStream(future) => future,
             _ => panic!("non Local queries have no future, see take_message()"),
         }
     }
@@ -401,7 +432,7 @@ impl Local {
     /// Panics if this is in fact a Local::ResolveStream
     fn take_request(self) -> DnsRequest {
         match self {
-            Local::NotMdns(request) => request,
+            Self::NotMdns(request) => request,
             _ => panic!("Local queries must be polled, see take_future()"),
         }
     }
@@ -412,9 +443,9 @@ impl Stream for Local {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match *self {
-            Local::ResolveStream(ref mut ns) => ns.as_mut().poll_next(cx),
+            Self::ResolveStream(ref mut ns) => ns.as_mut().poll_next(cx),
             // TODO: making this a panic for now
-            Local::NotMdns(..) => panic!("Local queries that are not mDNS should not be polled"), //Local::NotMdns(message) => return Err(ResolveErrorKind::Message("not mDNS")),
+            Self::NotMdns(..) => panic!("Local queries that are not mDNS should not be polled"), //Local::NotMdns(message) => return Err(ResolveErrorKind::Message("not mDNS")),
         }
     }
 }
@@ -465,7 +496,7 @@ mod tests {
         resolver_config.add_name_server(config2);
 
         let io_loop = Runtime::new().unwrap();
-        let mut pool = NameServerPool::<_, TokioConnectionProvider>::from_config(
+        let mut pool = NameServerPool::<_, TokioConnectionProvider>::tokio_from_config(
             &resolver_config,
             &ResolverOpts::default(),
             TokioHandle::default(),
@@ -509,8 +540,6 @@ mod tests {
 
     #[test]
     fn test_multi_use_conns() {
-        env_logger::try_init().ok();
-
         let io_loop = Runtime::new().unwrap();
         let conn_provider = TokioConnectionProvider::new(TokioHandle::default());
 

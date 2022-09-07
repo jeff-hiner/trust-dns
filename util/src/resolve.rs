@@ -25,7 +25,6 @@ use std::net::{IpAddr, SocketAddr};
 use clap::Parser;
 use console::style;
 
-use trust_dns_proto::xfer::DnsRequestOptions;
 use trust_dns_resolver::config::{
     NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
 };
@@ -123,25 +122,18 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // enable logging early
     let log_level = if opts.debug {
-        log::LevelFilter::Debug
+        Some(tracing::Level::DEBUG)
     } else if opts.info {
-        log::LevelFilter::Info
+        Some(tracing::Level::INFO)
     } else if opts.warn {
-        log::LevelFilter::Warn
+        Some(tracing::Level::WARN)
     } else if opts.error {
-        log::LevelFilter::Error
+        Some(tracing::Level::ERROR)
     } else {
-        log::LevelFilter::Off
+        None
     };
 
-    // Get query term
-    env_logger::builder()
-        .filter_module("trust_dns_resolver", log_level)
-        .filter_module("trust_dns_proto", log_level)
-        .filter_module("trust_dns_proto", log_level)
-        .write_style(env_logger::WriteStyle::Auto)
-        .format_indent(Some(4))
-        .init();
+    trust_dns_util::logger(env!("CARGO_BIN_NAME"), log_level);
 
     // read system configuration
     let (sys_config, sys_options): (Option<ResolverConfig>, Option<ResolverOpts>) = if opts.system {
@@ -245,9 +237,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         lookup.into()
     } else {
-        resolver
-            .lookup(name.to_string(), ty, DnsRequestOptions::default())
-            .await?
+        resolver.lookup(name.to_string(), ty).await?
     };
 
     // report response, TODO: better display of errors

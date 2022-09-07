@@ -37,37 +37,41 @@
 
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate log;
 
 use std::{
-    env,
-    fmt::Display,
-    io::{self, Write},
+    env, fmt,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use clap::{Arg, ArgMatches};
-use env_logger::fmt::Formatter;
 use time::OffsetDateTime;
 use tokio::{
     net::{TcpListener, UdpSocket},
     runtime,
 };
+use tracing::{debug, error, info, warn, Event, Subscriber};
+use tracing_subscriber::{
+    fmt::{format, FmtContext, FormatEvent, FormatFields, FormattedFields},
+    layer::SubscriberExt,
+    registry::LookupSpan,
+    util::SubscriberInitExt,
+};
 
 use trust_dns_client::rr::Name;
 #[cfg(feature = "dns-over-tls")]
 use trust_dns_server::config::dnssec::{self, TlsCertConfig};
-use trust_dns_server::server::ServerFuture;
 #[cfg(feature = "resolver")]
 use trust_dns_server::store::forwarder::ForwardAuthority;
+#[cfg(feature = "recursor")]
+use trust_dns_server::store::recursor::RecursiveAuthority;
 #[cfg(feature = "sqlite")]
 use trust_dns_server::store::sqlite::{SqliteAuthority, SqliteConfig};
 use trust_dns_server::{
     authority::{AuthorityObject, Catalog, ZoneType},
     config::{Config, ZoneConfig},
+    server::ServerFuture,
     store::{
         file::{FileAuthority, FileConfig},
         StoreConfig,
@@ -120,7 +124,7 @@ where
             }
         }
 
-        info!("signing zone: {}", zone_config.get_zone().unwrap());
+        info!("signing zone: {}", zone_config.get_zone()?);
         authority.secure_zone().await.expect("failed to sign zone");
     }
     Ok(())
@@ -197,8 +201,15 @@ async fn load_zone(
         }
         #[cfg(feature = "resolver")]
         Some(StoreConfig::Forward(ref config)) => {
-            let forwarder = ForwardAuthority::try_from_config(zone_name, zone_type, config);
-            let authority = forwarder.await?;
+            let forwarder = ForwardAuthority::try_from_config(zone_name, zone_type, config)?;
+
+            Box::new(Arc::new(forwarder)) as Box<dyn AuthorityObject>
+        }
+        #[cfg(feature = "recursor")]
+        Some(StoreConfig::Recursor(ref config)) => {
+            let recursor =
+                RecursiveAuthority::try_from_config(zone_name, zone_type, config, Some(zone_dir));
+            let authority = recursor.await?;
 
             Box::new(Arc::new(authority)) as Box<dyn AuthorityObject>
         }
@@ -256,10 +267,7 @@ async fn load_zone(
         }
     };
 
-    info!(
-        "zone successfully loaded: {}",
-        zone_config.get_zone().unwrap()
-    );
+    info!("zone successfully loaded: {}", zone_config.get_zone()?);
     Ok(authority)
 }
 
@@ -286,7 +294,7 @@ struct Args {
     pub(crate) flag_quic_port: Option<u16>,
 }
 
-impl<'a> From<ArgMatches> for Args {
+impl From<ArgMatches> for Args {
     fn from(matches: ArgMatches) -> Args {
         Args {
             flag_quiet: matches.is_present(QUIET_ARG),
@@ -427,8 +435,12 @@ fn main() {
 
     // TODO: support all the IPs asked to listen on...
     // TODO:, there should be the option to listen on any port, IP and protocol option...
-    let v4addr = config.get_listen_addrs_ipv4();
-    let v6addr = config.get_listen_addrs_ipv6();
+    let v4addr = config
+        .get_listen_addrs_ipv4()
+        .expect("Error with parsing provided by configuration Ipv4");
+    let v6addr = config
+        .get_listen_addrs_ipv6()
+        .expect("Error with parsing provided by configuration Ipv6");
     let mut listen_addrs: Vec<IpAddr> = v4addr
         .into_iter()
         .map(IpAddr::V4)
@@ -734,80 +746,100 @@ fn banner() {
     info!("");
 }
 
-fn format<L, M, LN, A>(
-    fmt: &mut Formatter,
-    level: L,
-    module: M,
-    line: LN,
-    args: A,
-) -> io::Result<()>
-where
-    L: Display,
-    M: Display,
-    LN: Display,
-    A: Display,
-{
-    let now = OffsetDateTime::now_utc();
-    let now_secs = now.unix_timestamp();
-    writeln!(fmt, "{}:{}:{}:{}:{}", now_secs, level, module, line, args)
-}
+struct TdnsFormatter;
 
-fn plain_formatter(fmt: &mut Formatter, record: &log::Record<'_>) -> io::Result<()> {
-    format(
-        fmt,
-        record.level(),
-        record.module_path().unwrap_or("None"),
-        record.line().unwrap_or(0),
-        record.args(),
-    )
+impl<S, N> FormatEvent<S, N> for TdnsFormatter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: format::Writer<'_>,
+        event: &Event<'_>,
+    ) -> fmt::Result {
+        let now = OffsetDateTime::now_utc();
+        let now_secs = now.unix_timestamp();
+
+        // Format values from the event's's metadata:
+        let metadata = event.metadata();
+        write!(
+            &mut writer,
+            "{}:{}:{}",
+            now_secs,
+            metadata.level(),
+            metadata.target()
+        )?;
+
+        if let Some(line) = metadata.line() {
+            write!(&mut writer, ":{}", line)?;
+        }
+
+        // Format all the spans in the event's span context.
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope.from_root() {
+                write!(writer, ":{}", span.name())?;
+
+                let ext = span.extensions();
+                let fields = &ext
+                    .get::<FormattedFields<N>>()
+                    .expect("will never be `None`");
+
+                // Skip formatting the fields if the span had no fields.
+                if !fields.is_empty() {
+                    write!(writer, "{{{}}}", fields)?;
+                }
+            }
+        }
+
+        // Write fields on the event
+        write!(writer, ":")?;
+        ctx.field_format().format_fields(writer.by_ref(), event)?;
+
+        writeln!(writer)
+    }
 }
 
 fn get_env() -> String {
     env::var("RUST_LOG").unwrap_or_default()
 }
 
-fn all_trust_dns(level: &str) -> String {
+fn all_trust_dns(level: impl ToString) -> String {
     format!(
-        ",named={level},trust_dns_client={level},trust_dns_server={level},trust_dns_proto={level},trust_dns_resolver={level},trust_dns_https={level}",
-        level = level
+        "named={level},trust_dns={level},{env}",
+        level = level.to_string().to_lowercase(),
+        env = get_env()
     )
 }
 
 /// appends trust-dns-server debug to RUST_LOG
 pub fn debug() {
-    let mut rust_log = get_env();
-    rust_log.push_str(&all_trust_dns("debug"));
-    logger(&rust_log);
+    logger(tracing::Level::DEBUG);
 }
 
 /// appends trust-dns-server info to RUST_LOG
 pub fn default() {
-    let mut rust_log = get_env();
-    rust_log.push_str(&all_trust_dns("info"));
-    logger(&rust_log);
+    logger(tracing::Level::INFO);
 }
 
 /// appends trust-dns-server error to RUST_LOG
 pub fn quiet() {
-    let mut rust_log = get_env();
-    rust_log.push_str(&all_trust_dns("error"));
-    logger(&rust_log);
+    logger(tracing::Level::ERROR);
 }
 
-/// only uses the RUST_LOG environment variable.
-pub fn env() {
-    let rust_log = get_env();
-    logger(&rust_log);
-}
+// TODO: add dep on util crate, share logging config...
+fn logger(level: tracing::Level) {
+    // Setup tracing for logging based on input
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(tracing::Level::WARN.into())
+        .parse(all_trust_dns(level))
+        .expect("failed to configure tracing/logging");
 
-/// see env_logger docs
-fn logger(config: &str) {
-    let mut builder = env_logger::Builder::new();
+    let formatter = tracing_subscriber::fmt::layer().event_format(TdnsFormatter);
 
-    let log_formatter = plain_formatter;
-
-    builder.format(log_formatter);
-    builder.parse_filters(config);
-    builder.target(env_logger::Target::Stdout);
-    builder.init();
+    tracing_subscriber::registry()
+        .with(formatter)
+        .with(filter)
+        .init();
 }

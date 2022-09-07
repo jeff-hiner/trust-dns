@@ -37,7 +37,7 @@ CARGO_MAKE_CRATES_IO_TOKEN = { value = "--token=${CRATES_IO_TOKEN}", condition =
 [tasks.install-openssl]
 description = "Installs OpenSSL on Windows"
 workspace = false
-env = { OPENSSL_VERSION = "1_1_1n", OPENSSL_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}\\target\\OpenSSL" }
+env = { OPENSSL_VERSION = "1_1_1q", OPENSSL_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}\\target\\OpenSSL" }
 condition = { platforms = ["windows"], files_not_exist = ["${OPENSSL_DIR}"] }
 script_runner = "powershell"
 script_extension = "ps1"
@@ -414,7 +414,7 @@ run_task = { name = "all", fork = true }
 description = "Run all with --features=mdns"
 dependencies = ["install-openssl"]
 workspace = false
-env = { FEATURES = "--features=mdns", CARGO_MAKE_WORKSPACE_SKIP_MEMBERS = "crates/resolver;crates/async-std-resolver;crates/server;bin;tests/compatibility-tests;tests/integration-tests;util" }
+env = { FEATURES = "--features=mdns", CARGO_MAKE_WORKSPACE_SKIP_MEMBERS = "crates/recursor;crates/resolver;crates/async-std-resolver;crates/server;bin;tests/compatibility-tests;tests/integration-tests;util" }
 run_task = { name = "all", fork = true }
 
 [tasks.async-std]

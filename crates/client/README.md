@@ -65,16 +65,16 @@ To enable DoT one of the features `dns-over-native-tls`, `dns-over-openssl`, or 
 ## DNSSec status
 
 Currently the root key is hardcoded into the system. This gives validation of
- DNSKEY and DS records back to the root. NSEC is implemented, but not NSEC3.
- Because caching is not yet enabled, it has been noticed that some DNS servers
- appear to rate limit the connections, validating RRSIG records back to the root
- can require a significant number of additional queries for those records.
+DNSKEY and DS records back to the root. NSEC is implemented, but not NSEC3.
+Because caching is not yet enabled, it has been noticed that some DNS servers
+appear to rate limit the connections, validating RRSIG records back to the root
+can require a significant number of additional queries for those records.
 
-Zones will be automatically resigned on any record updates via dynamic DNS. To enable DNSSEC, one of the features `dnssec-openssl` or `dnssec-rustls` must be enabled.
+Zones will be automatically resigned on any record updates via dynamic DNS. To enable DNSSEC, one of the features `dnssec-openssl` or `dnssec-ring` must be enabled.
 
 ## Minimum Rust Version
 
-The current minimum rustc version for this project is `1.54`
+The current minimum rustc version for this project is `1.59`
 
 ## Versioning
 

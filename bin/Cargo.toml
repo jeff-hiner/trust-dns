@@ -1,14 +1,14 @@
 [package]
 name = "trust-dns"
-version = "0.21.2"
+version = "0.22.0"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
 description = """
-Trust-DNS is a safe and secure DNS server with DNSec support.
- Eventually this could be a replacement for BIND9. The DNSSec support allows
+Trust-DNS is a safe and secure DNS server with DNSEC support.
+ Eventually this could be a replacement for BIND9. The DNSSEC support allows
  for live signing of all records, in it does not currently support
  records signed offline. The server supports dynamic DNS with SIG0 authenticated
  requests. Trust-DNS is based on the Tokio and Futures libraries, which means
@@ -46,6 +46,8 @@ default = ["sqlite", "resolver"]
 dnssec-openssl = ["dnssec", "trust-dns-client/dnssec-openssl", "trust-dns-proto/dnssec-openssl", "trust-dns-server/dnssec-openssl"]
 dnssec-ring = ["dnssec", "trust-dns-client/dnssec-ring", "trust-dns-proto/dnssec-ring", "trust-dns-server/dnssec-ring"]
 dnssec = []
+recursor = ["trust-dns-server/recursor"]
+# Recursive Resolution is Experimental!
 resolver = ["trust-dns-server/resolver"]
 sqlite = ["trust-dns-server/sqlite"]
 
@@ -68,26 +70,30 @@ tls = ["dns-over-openssl"]
 # WARNING: there is a bug in the mutual tls auth code at the moment see issue #100
 # mtls = ["trust-dns-client/mtls"]
 
+## DEPRECATED
 [[bin]]
 name = "named"
 path = "src/named.rs"
 
+[[bin]]
+name = "trust-dns"
+path = "src/named.rs"
+
 [dependencies]
 clap = { version = "3.0", default-features = false, features = ["std", "cargo"] }
-env_logger = "0.9"
 futures = { version = "0.3.5", default-features = false, features = ["std"] }
-log = "0.4"
 rustls = { version = "0.20", optional = true }
 time = "0.3"
+tracing = "0.1.30"
+tracing-subscriber = { version = "0.3", features = ["std", "fmt", "env-filter"] }
 tokio = { version = "1.0", features = ["time"] }
-trust-dns-client = { version = "0.21.1", path = "../crates/client" }
-trust-dns-proto = { version = "0.21.1", path = "../crates/proto" }
-trust-dns-server = { version = "0.21.1", path = "../crates/server" }
+trust-dns-client = { version = "0.22.0", path = "../crates/client" }
+trust-dns-proto = { version = "0.22.0", path = "../crates/proto" }
+trust-dns-server = { version = "0.22.0", path = "../crates/server" }
 
 [dev-dependencies]
-env_logger = "0.9"
 native-tls = "0.2"
 regex = "1.3.4"
-trust-dns-proto = { version = "0.21.1", path = "../crates/proto", features = ["testing", "dns-over-native-tls"] }
-trust-dns-resolver = { version = "0.21.1", path = "../crates/resolver" }
+trust-dns-proto = { version = "0.22.0", path = "../crates/proto", features = ["testing", "dns-over-native-tls"] }
+trust-dns-resolver = { version = "0.22.0", path = "../crates/resolver" }
 webpki-roots = "0.22.1"

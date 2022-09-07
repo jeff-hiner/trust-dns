@@ -11,10 +11,10 @@ use std::iter::Iterator;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use log::error;
 use rusqlite::types::ToSql;
 use rusqlite::{self, Connection};
 use time;
+use tracing::error;
 
 use crate::error::{PersistenceErrorKind, PersistenceResult};
 use crate::proto::rr::Record;
@@ -42,13 +42,9 @@ impl Journal {
     /// Constructs a new Journal opening a Sqlite connection to the file at the specified path
     pub fn from_file(journal_file: &Path) -> PersistenceResult<Self> {
         let result = Self::new(Connection::open(journal_file)?);
-        match result {
-            Ok(mut journal) => {
-                journal.schema_up().unwrap();
-                Ok(journal)
-            }
-            Err(err) => Err(err),
-        }
+        let mut journal = result?;
+        journal.schema_up()?;
+        Ok(journal)
     }
 
     /// Returns a reference to the Sqlite Connection

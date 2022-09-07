@@ -8,8 +8,10 @@ use tokio::runtime::Runtime;
 
 use trust_dns_client::rr::{Name, RData, RecordType};
 use trust_dns_resolver::TokioHandle;
-use trust_dns_server::authority::{Authority, LookupObject};
-use trust_dns_server::store::forwarder::ForwardAuthority;
+use trust_dns_server::{
+    authority::{Authority, LookupObject},
+    store::forwarder::ForwardAuthority,
+};
 
 #[ignore]
 #[test]
