@@ -190,7 +190,11 @@ impl ResolveError {
                 let mut response = response;
                 let soa = response.soa().cloned();
                 let negative_ttl = response.negative_ttl();
-                let trusted = trust_nx && response.authoritative();
+                // Note: improperly configured servers may do recursive lookups and return bad SOA
+                // records here via AS112 (blackhole-1.iana.org. etc)
+                // Such servers should be marked not trusted, as they may break reverse lookups
+                // for local hosts.
+                let trusted = trust_nx && soa.is_some();
                 let query = response.take_queries().drain(..).next().unwrap_or_default();
                 let error_kind = ResolveErrorKind::NoRecordsFound {
                     query: Box::new(query),
