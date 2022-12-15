@@ -400,10 +400,12 @@ pub struct NameServerConfig {
     pub tls_dns_name: Option<String>,
     /// Whether to trust `NXDOMAIN` responses from upstream nameservers.
     ///
-    /// When this is `true`, and an empty `NXDOMAIN` response is received, the
-    /// query will not be retried against other configured name servers.
+    /// When this is `true`, and an empty `NXDOMAIN` response or `NOERROR`
+    /// with an empty answers set is received, the
+    /// query will not be retried against other configured name servers if
+    /// the response has the Authoritative flag set.
     ///
-    /// (On an empty `NoError` response, or a response with any other error
+    /// (On a response with any other error
     /// response code, the query will still be retried regardless of this
     /// configuration setting.)
     ///
