@@ -12,8 +12,9 @@ use trust_dns_proto::rr::Record;
 
 use crate::{
     authority::MessageResponse,
-    client::serialize::binary::BinEncoder,
-    proto::{xfer::SerialMessage, BufDnsStreamHandle, DnsStreamHandle},
+    proto::{
+        serialize::binary::BinEncoder, xfer::SerialMessage, BufDnsStreamHandle, DnsStreamHandle,
+    },
     server::ResponseInfo,
 };
 
@@ -82,10 +83,7 @@ impl ResponseHandler for ResponseHandle {
         };
 
         let info = encode_result.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("error encoding message: {}", e),
-            )
+            io::Error::new(io::ErrorKind::Other, format!("error encoding message: {e}"))
         })?;
 
         self.stream_handle

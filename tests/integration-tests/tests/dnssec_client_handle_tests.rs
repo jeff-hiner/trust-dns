@@ -10,13 +10,13 @@ use tokio::net::UdpSocket as TokioUdpSocket;
 use tokio::runtime::Runtime;
 
 use trust_dns_client::client::{AsyncClient, ClientHandle, MemoizeClientHandle};
-use trust_dns_client::op::ResponseCode;
-use trust_dns_client::rr::dnssec::TrustAnchor;
-use trust_dns_client::rr::Name;
-use trust_dns_client::rr::{DNSClass, RData, RecordType};
 use trust_dns_client::tcp::TcpClientStream;
 
 use trust_dns_proto::iocompat::AsyncIoTokioAsStd;
+use trust_dns_proto::op::ResponseCode;
+use trust_dns_proto::rr::dnssec::TrustAnchor;
+use trust_dns_proto::rr::Name;
+use trust_dns_proto::rr::{DNSClass, RData, RecordType};
 use trust_dns_proto::udp::{UdpClientConnect, UdpClientStream};
 use trust_dns_proto::DnssecDnsHandle;
 use trust_dns_server::authority::{Authority, Catalog};
@@ -49,7 +49,7 @@ where
         .block_on(client.query(name.clone(), DNSClass::IN, RecordType::A))
         .expect("query failed");
 
-    println!("response records: {:?}", response);
+    println!("response records: {response:?}");
     assert!(response
         .extensions()
         .as_ref()

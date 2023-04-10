@@ -52,12 +52,8 @@ struct Opts {
     ty: RecordType,
 
     /// Specify a nameserver to use, ip and port e.g. 8.8.8.8:53 or \[2001:4860:4860::8888\]:53 (port required)
-    #[clap(
-        short = 'n',
-        long,
-        use_value_delimiter = true,
-        require_value_delimiter = true
-    )]
+    /// ip:port are delimited by a comma like 8.8.8.8:53,1.1.1.1:53
+    #[clap(short = 'n', long, use_value_delimiter = true, value_delimiter(','))]
     nameserver: Vec<SocketAddr>,
 
     /// Specify the IP address to connect from.
@@ -129,7 +125,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket_addr: *socket_addr,
             protocol: Protocol::Tcp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: opts.bind.map(|ip| SocketAddr::new(ip, 0)),
@@ -139,7 +135,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket_addr: *socket_addr,
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: opts.bind.map(|ip| SocketAddr::new(ip, 0)),
@@ -191,7 +187,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         if let Some(rdata) = r.data() {
-            println!(" {rdata}", rdata = rdata);
+            println!(" {rdata}");
         } else {
             println!("NULL")
         }

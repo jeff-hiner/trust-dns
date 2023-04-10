@@ -41,7 +41,7 @@ pub fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> io::Result<(ResolverConfig,
     let parsed_conf = resolv_conf::Config::parse(&data).map_err(|e| {
         io::Error::new(
             io::ErrorKind::Other,
-            format!("Error parsing resolv.conf: {:?}", e),
+            format!("Error parsing resolv.conf: {e}"),
         )
     })?;
     into_resolver_config(parsed_conf)
@@ -68,7 +68,7 @@ fn into_resolver_config(
             socket_addr: SocketAddr::new(ip.into(), DEFAULT_PORT),
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,
@@ -77,7 +77,7 @@ fn into_resolver_config(
             socket_addr: SocketAddr::new(ip.into(), DEFAULT_PORT),
             protocol: Protocol::Tcp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,
@@ -90,10 +90,10 @@ fn into_resolver_config(
     // search
     let mut search = vec![];
     for search_domain in parsed_config.get_last_search_or_domain() {
-        search.push(Name::from_str_relaxed(&search_domain).map_err(|e| {
+        search.push(Name::from_str_relaxed(search_domain).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("Error parsing resolv.conf: {:?}", e),
+                format!("Error parsing resolv.conf: {e}"),
             )
         })?);
     }
@@ -129,7 +129,7 @@ mod tests {
                 socket_addr: addr,
                 protocol: Protocol::Udp,
                 tls_dns_name: None,
-                trust_nx_responses: false,
+                trust_negative_responses: false,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -138,7 +138,7 @@ mod tests {
                 socket_addr: addr,
                 protocol: Protocol::Tcp,
                 tls_dns_name: None,
-                trust_nx_responses: false,
+                trust_negative_responses: false,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -148,7 +148,7 @@ mod tests {
 
     fn tests_dir() -> String {
         let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
-        format!("{}/crates/resolver/tests", server_path)
+        format!("{server_path}/crates/resolver/tests")
     }
 
     #[test]

@@ -12,8 +12,7 @@ use std::sync::Arc;
 use cfg_if::cfg_if;
 
 use crate::authority::{LookupObject, LookupOptions};
-use crate::client::rr::LowerName;
-use crate::proto::rr::{Record, RecordSet, RecordType, RrsetRecords};
+use crate::proto::rr::{LowerName, Record, RecordSet, RecordType, RrsetRecords};
 
 /// The result of a lookup on an Authority
 ///
@@ -317,7 +316,7 @@ impl LookupRecords {
         }
     }
 
-    /// Construct a new LookupRecords over a set of ResordSets
+    /// Construct a new LookupRecords over a set of RecordSets
     pub fn many(lookup_options: LookupOptions, mut records: Vec<Arc<RecordSet>>) -> Self {
         // we're reversing the records because they are output in reverse order, via pop()
         records.reverse();

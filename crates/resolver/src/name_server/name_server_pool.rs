@@ -36,7 +36,7 @@ pub struct NameServerPool<
     C: DnsHandle<Error = ResolveError> + Send + Sync + 'static,
     P: ConnectionProvider<Conn = C> + Send + 'static,
 > {
-    // TODO: switch to FuturesMutex (Mutex will have some undesireable locking)
+    // TODO: switch to FuturesMutex (Mutex will have some undesirable locking)
     datagram_conns: Arc<[NameServer<C, P>]>, /* All NameServers must be the same type */
     stream_conns: Arc<[NameServer<C, P>]>,   /* All NameServers must be the same type */
     #[cfg(feature = "mdns")]
@@ -402,6 +402,7 @@ mod mdns {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Local {
     #[allow(dead_code)]
     ResolveStream(Pin<Box<dyn Stream<Item = Result<DnsResponse, ResolveError>> + Send>>),
@@ -470,12 +471,13 @@ mod tests {
     #[ignore]
     // because of there is a real connection that needs a reasonable timeout
     #[test]
+    #[allow(clippy::uninlined_format_args)]
     fn test_failed_then_success_pool() {
         let config1 = NameServerConfig {
             socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 252)), 253),
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,
@@ -485,7 +487,7 @@ mod tests {
             socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53),
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,
@@ -547,7 +549,7 @@ mod tests {
             socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53),
             protocol: Protocol::Tcp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,

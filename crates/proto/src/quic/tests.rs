@@ -5,6 +5,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![allow(clippy::print_stdout)] // this is a test module
+
 use std::{env, net::SocketAddr, path::Path, str::FromStr, sync::Arc};
 
 use futures_util::StreamExt;
@@ -35,7 +37,7 @@ async fn server_responder(mut server: QuicServer) {
 
             // just response with the same message.
             stream
-                .send(client_message)
+                .send(client_message.into_message())
                 .await
                 .expect("failed to send response")
         }
@@ -47,23 +49,18 @@ async fn test_quic_stream() {
     let dns_name = "ns.example.com";
 
     let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
-    println!("using server src path: {}", server_path);
+    println!("using server src path: {server_path}");
 
-    let ca = tls_server::read_cert(Path::new(&format!(
-        "{}/tests/test-data/ca.pem",
-        server_path
-    )))
-    .map_err(|e| format!("error reading cert: {}", e))
-    .unwrap();
+    let ca = tls_server::read_cert(Path::new(&format!("{server_path}/tests/test-data/ca.pem")))
+        .map_err(|e| format!("error reading cert: {e}"))
+        .unwrap();
     let cert = tls_server::read_cert(Path::new(&format!(
-        "{}/tests/test-data/cert.pem",
-        server_path
+        "{server_path}/tests/test-data/cert.pem"
     )))
-    .map_err(|e| format!("error reading cert: {}", e))
+    .map_err(|e| format!("error reading cert: {e}"))
     .unwrap();
     let key = tls_server::read_key_from_pem(Path::new(&format!(
-        "{}/tests/test-data/cert-key.pem",
-        server_path
+        "{server_path}/tests/test-data/cert.key"
     )))
     .unwrap();
 
@@ -74,7 +71,7 @@ async fn test_quic_stream() {
 
     // kick off the server
     let server_addr = quic_ns.local_addr().expect("no address");
-    println!("testing quic on: {}", server_addr);
+    println!("testing quic on: {server_addr}");
     let server_join = tokio::spawn(server_responder(quic_ns));
 
     // now construct the client

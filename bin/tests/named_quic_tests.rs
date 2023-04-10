@@ -28,9 +28,8 @@ fn test_example_quic_toml_startup() {
         let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "..".to_owned());
         println!("using server src path: {server_path} and quic_port: {quic_port:?}");
 
-        File::open(&format!(
-            "{}/tests/test-data/named_test_configs/sec/example.cert",
-            server_path
+        File::open(format!(
+            "{server_path}/tests/test-data/test_configs/sec/example.cert"
         ))
         .expect("failed to open cert")
         .read_to_end(&mut cert_der)

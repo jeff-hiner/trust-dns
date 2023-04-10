@@ -18,11 +18,10 @@ use tracing::{error, info, warn};
 
 use crate::{
     authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
-    client::rr::{LowerName, RrKey},
     error::{PersistenceErrorKind, PersistenceResult},
     proto::{
         op::ResponseCode,
-        rr::{DNSClass, Name, RData, Record, RecordSet, RecordType},
+        rr::{DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey},
     },
     server::RequestInfo,
     store::{
@@ -33,8 +32,10 @@ use crate::{
 #[cfg(feature = "dnssec")]
 use crate::{
     authority::{DnssecAuthority, UpdateRequest},
-    client::rr::dnssec::{DnsSecResult, SigSigner},
-    proto::rr::dnssec::rdata::key::KEY,
+    proto::rr::dnssec::{
+        rdata::{key::KEY, DNSSECRData},
+        DnsSecResult, SigSigner, Verifier,
+    },
 };
 
 /// SqliteAuthority is responsible for storing the resource records for a particular zone.
@@ -94,7 +95,7 @@ impl SqliteAuthority {
         if journal_path.exists() {
             info!("recovering zone from journal: {:?}", journal_path);
             let journal = Journal::from_file(&journal_path)
-                .map_err(|e| format!("error opening journal: {:?}: {}", journal_path, e))?;
+                .map_err(|e| format!("error opening journal: {journal_path:?}: {e}"))?;
 
             let in_memory = InMemoryAuthority::empty(zone_name.clone(), zone_type, allow_axfr);
             let mut authority = Self::new(in_memory, config.allow_update, enable_dnssec);
@@ -102,7 +103,7 @@ impl SqliteAuthority {
             authority
                 .recover_with_journal(&journal)
                 .await
-                .map_err(|e| format!("error recovering from journal: {}", e))?;
+                .map_err(|e| format!("error recovering from journal: {e}"))?;
 
             authority.set_journal(journal).await;
             info!("recovered zone: {}", zone_name);
@@ -130,7 +131,7 @@ impl SqliteAuthority {
             // if dynamic update is enabled, enable the journal
             info!("creating new journal: {:?}", journal_path);
             let journal = Journal::from_file(&journal_path)
-                .map_err(|e| format!("error creating journal {:?}: {}", journal_path, e))?;
+                .map_err(|e| format!("error creating journal {journal_path:?}: {e}"))?;
 
             authority.set_journal(journal).await;
 
@@ -138,15 +139,12 @@ impl SqliteAuthority {
             authority
                 .persist_to_journal()
                 .await
-                .map_err(|e| format!("error persisting to journal {:?}: {}", journal_path, e))?;
+                .map_err(|e| format!("error persisting to journal {journal_path:?}: {e}"))?;
 
             info!("zone file loaded: {}", zone_name);
             Ok(authority)
         } else {
-            Err(format!(
-                "no zone file or journal defined at: {:?}",
-                zone_path
-            ))
+            Err(format!("no zone file or journal defined at: {zone_path:?}"))
         }
     }
 
@@ -451,9 +449,6 @@ impl SqliteAuthority {
     #[allow(clippy::blocks_in_if_conditions)]
     pub async fn authorize(&self, update_message: &MessageRequest) -> UpdateResult<()> {
         use tracing::debug;
-
-        use crate::client::rr::rdata::DNSSECRData;
-        use crate::proto::rr::dnssec::Verifier;
 
         // 3.3.3 - Pseudocode for Permission Checking
         //

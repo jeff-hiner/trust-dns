@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-//! The `DnssecDnsHandle` is used to validate all DNS responses for correct DNSSec signatures.
+//! The `DnssecDnsHandle` is used to validate all DNS responses for correct DNSSEC signatures.
 
 use std::clone::Clone;
 use std::collections::HashSet;
@@ -38,7 +38,7 @@ struct Rrset {
     pub(crate) records: Vec<Record>,
 }
 
-/// Performs DNSSec validation of all DNS responses from the wrapped DnsHandle
+/// Performs DNSSEC validation of all DNS responses from the wrapped DnsHandle
 ///
 /// This wraps a DnsHandle, changing the implementation `send()` to validate all
 ///  message responses for Query operations. Update operation responses are not validated by
@@ -256,7 +256,7 @@ where
 
     // there was no data returned in that message
     if rrset_types.is_empty() {
-        let mut message_result = message_result;
+        let mut message_result = message_result.into_message();
 
         // there were no returned results, double check by dropping all the results
         message_result.take_answers();
@@ -359,7 +359,7 @@ where
                         .queries()
                         .iter()
                         .map(|q| q.to_string())
-                        .fold(String::new(), |s, q| format!("{},{}", q, s));
+                        .fold(String::new(), |s, q| format!("{q},{s}"));
 
                     query.truncate(query.len() - 1);
                     debug!("an rrset failed to verify ({}): {:?}", query, e);
@@ -383,7 +383,7 @@ where
     }
 
     // validated not none above...
-    let mut message_result = message_result;
+    let (mut message_result, message_buffer) = message_result.into_parts();
 
     // take all the rrsets from the Message, filter down each set to the validated rrsets
     // TODO: does the section in the message matter here?
@@ -414,7 +414,7 @@ where
     message_result.insert_additionals(additionals);
 
     // breaks out of the loop... and returns the filtered Message.
-    Ok(message_result)
+    Ok(DnsResponse::new(message_result, message_buffer))
 }
 
 /// Generic entrypoint to verify any RRSET against the provided signatures.

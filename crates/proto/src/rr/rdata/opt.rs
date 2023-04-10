@@ -255,7 +255,7 @@ pub fn read(decoder: &mut BinDecoder<'_>, rdata_length: Restrict<u16>) -> ProtoR
                     OptReadState::Data {
                         code,
                         length,
-                        // TODO: this cean be replaced with decoder.read_vec(), right?
+                        // TODO: this can be replaced with decoder.read_vec(), right?
                         //  the current version allows for malformed opt to be skipped...
                         collected: Vec::<u8>::with_capacity(length),
                     }
@@ -532,7 +532,7 @@ mod tests {
         assert!(emit(&mut encoder, &rdata).is_ok());
         let bytes = encoder.into_bytes();
 
-        println!("bytes: {:?}", bytes);
+        println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
         let restrict = Restrict::new(bytes.len() as u16);

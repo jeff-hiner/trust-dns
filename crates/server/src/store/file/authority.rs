@@ -20,17 +20,12 @@ use tracing::{debug, info};
 #[cfg(feature = "dnssec")]
 use crate::{
     authority::DnssecAuthority,
-    client::{
-        proto::rr::dnssec::rdata::key::KEY,
-        rr::dnssec::{DnsSecResult, SigSigner},
-    },
+    proto::rr::dnssec::{rdata::key::KEY, DnsSecResult, SigSigner},
 };
 use crate::{
     authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
-    client::{
-        rr::{LowerName, Name, RecordSet, RecordType, RrKey},
-        serialize::txt::{Lexer, Parser, Token},
-    },
+    proto::rr::{LowerName, Name, RecordSet, RecordType, RrKey},
+    proto::serialize::txt::{Lexer, Parser, Token},
     server::RequestInfo,
     store::{file::FileConfig, in_memory::InMemoryAuthority},
 };
@@ -99,7 +94,7 @@ impl FileAuthority {
     /// Read given file line by line and recursively invokes reader for
     /// $INCLUDE directives
     ///
-    /// TODO: it looks hacky as far we effectively duplicate parser's functionallity
+    /// TODO: it looks hacky as far we effectively duplicate parser's functionality
     /// (at least partially) and performing lexing twice.
     /// Better solution requires us to change lexer to deal
     /// with Lines-like iterator instead of String buf (or capability to combine a few
@@ -116,7 +111,7 @@ impl FileAuthority {
             .map_err(|e| format!("failed to read {}: {:?}", zone_path.display(), e))?;
         let reader = BufReader::new(file);
         for line in reader.lines() {
-            let content = line.map_err(|err| format!("failed to read line: {:?}", err))?;
+            let content = line.map_err(|err| format!("failed to read line: {err:?}"))?;
             let mut lexer = Lexer::new(&content);
 
             match (lexer.next_token(), lexer.next_token(), lexer.next_token()) {
@@ -197,7 +192,7 @@ impl FileAuthority {
 
         let lexer = Lexer::new(&buf);
         let (origin, records) = Parser::new()
-            .parse(lexer, Some(origin), None)
+            .parse(lexer, Some(origin))
             .map_err(|e| format!("failed to parse {}: {:?}", config.zone_file_path, e))?;
 
         info!(
@@ -287,7 +282,7 @@ impl Authority for FileAuthority {
     ///
     /// # Return value
     ///
-    /// Returns a vectory containing the results of the query, it will be empty if not found. If
+    /// Returns a vector containing the results of the query, it will be empty if not found. If
     ///  `is_secure` is true, in the case of no records found then NSEC records will be returned.
     async fn search(
         &self,
@@ -356,7 +351,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
 
-    use crate::client::rr::RData;
+    use crate::proto::rr::RData;
     use futures_executor::block_on;
 
     use super::*;
@@ -366,12 +361,12 @@ mod tests {
     fn test_load_zone() {
         #[cfg(feature = "dnssec")]
         let config = FileConfig {
-            zone_file_path: "../../tests/test-data/named_test_configs/dnssec/example.com.zone"
+            zone_file_path: "../../tests/test-data/test_configs/dnssec/example.com.zone"
                 .to_string(),
         };
         #[cfg(not(feature = "dnssec"))]
         let config = FileConfig {
-            zone_file_path: "../../tests/test-data/named_test_configs/example.com.zone".to_string(),
+            zone_file_path: "../../tests/test-data/test_configs/example.com.zone".to_string(),
         };
         let authority = FileAuthority::try_from_config(
             Name::from_str("example.com.").unwrap(),
@@ -393,7 +388,7 @@ mod tests {
         match lookup
             .into_iter()
             .next()
-            .expect("A record not found in authity")
+            .expect("A record not found in authority")
             .data()
         {
             Some(RData::A(ip)) => assert_eq!(Ipv4Addr::new(127, 0, 0, 1), *ip),
@@ -411,7 +406,7 @@ mod tests {
         match include_lookup
             .into_iter()
             .next()
-            .expect("A record not found in authity")
+            .expect("A record not found in authority")
             .data()
         {
             Some(RData::A(ip)) => assert_eq!(Ipv4Addr::new(127, 0, 0, 5), *ip),

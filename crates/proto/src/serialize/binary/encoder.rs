@@ -25,13 +25,13 @@ mod private {
     use crate::error::{ProtoErrorKind, ProtoResult};
 
     /// A wrapper for a buffer that guarantees writes never exceed a defined set of bytes
-    pub(crate) struct MaximalBuf<'a> {
+    pub(super) struct MaximalBuf<'a> {
         max_size: usize,
         buffer: &'a mut Vec<u8>,
     }
 
     impl<'a> MaximalBuf<'a> {
-        pub(crate) fn new(max_size: u16, buffer: &'a mut Vec<u8>) -> Self {
+        pub(super) fn new(max_size: u16, buffer: &'a mut Vec<u8>) -> Self {
             MaximalBuf {
                 max_size: max_size as usize,
                 buffer,
@@ -39,47 +39,57 @@ mod private {
         }
 
         /// Sets the maximum size to enforce
-        pub(crate) fn set_max_size(&mut self, max: u16) {
+        pub(super) fn set_max_size(&mut self, max: u16) {
             self.max_size = max as usize;
         }
 
-        /// returns an error if the maximum buffer size would be exceeded with the addition number of elements
-        ///
-        /// and reserves the additional space in the buffer
-        pub(crate) fn enforced_write<F>(&mut self, additional: usize, writer: F) -> ProtoResult<()>
-        where
-            F: FnOnce(&mut Vec<u8>),
-        {
-            let expected_len = self.buffer.len() + additional;
-
-            if expected_len > self.max_size {
-                Err(ProtoErrorKind::MaxBufferSizeExceeded(self.max_size).into())
-            } else {
-                self.buffer.reserve(additional);
-                writer(self.buffer);
-
-                debug_assert_eq!(self.buffer.len(), expected_len);
-                Ok(())
+        pub(super) fn write(&mut self, offset: usize, data: &[u8]) -> ProtoResult<()> {
+            debug_assert!(offset <= self.buffer.len());
+            if offset + data.len() > self.max_size {
+                return Err(ProtoErrorKind::MaxBufferSizeExceeded(self.max_size).into());
             }
+
+            if offset == self.buffer.len() {
+                self.buffer.extend(data);
+                return Ok(());
+            }
+
+            let end = offset + data.len();
+            if end > self.buffer.len() {
+                self.buffer.resize(end, 0);
+            }
+
+            self.buffer[offset..end].copy_from_slice(data);
+            Ok(())
+        }
+
+        pub(super) fn reserve(&mut self, offset: usize, len: usize) -> ProtoResult<()> {
+            let end = offset + len;
+            if end > self.max_size {
+                return Err(ProtoErrorKind::MaxBufferSizeExceeded(self.max_size).into());
+            }
+
+            self.buffer.resize(end, 0);
+            Ok(())
         }
 
         /// truncates are always safe
-        pub(crate) fn truncate(&mut self, len: usize) {
+        pub(super) fn truncate(&mut self, len: usize) {
             self.buffer.truncate(len)
         }
 
         /// returns the length of the underlying buffer
-        pub(crate) fn len(&self) -> usize {
+        pub(super) fn len(&self) -> usize {
             self.buffer.len()
         }
 
         /// Immutable reads are always safe
-        pub(crate) fn buffer(&'a self) -> &'a [u8] {
+        pub(super) fn buffer(&'a self) -> &'a [u8] {
             self.buffer as &'a [u8]
         }
 
         /// Returns a reference to the internal buffer
-        pub(crate) fn into_bytes(self) -> &'a Vec<u8> {
+        pub(super) fn into_bytes(self) -> &'a Vec<u8> {
             self.buffer
         }
     }
@@ -261,16 +271,7 @@ impl<'a> BinEncoder<'a> {
 
     /// Emit one byte into the buffer
     pub fn emit(&mut self, b: u8) -> ProtoResult<()> {
-        if self.offset < self.buffer.len() {
-            let offset = self.offset;
-            self.buffer.enforced_write(0, |buffer| {
-                *buffer
-                    .get_mut(offset)
-                    .expect("could not get index at offset") = b
-            })?;
-        } else {
-            self.buffer.enforced_write(1, |buffer| buffer.push(b))?;
-        }
+        self.buffer.write(self.offset, &[b])?;
         self.offset += 1;
         Ok(())
     }
@@ -297,9 +298,18 @@ impl<'a> BinEncoder<'a> {
             .into());
         }
 
+        self.emit_character_data_unrestricted(char_data)
+    }
+
+    /// Emit character data of unrestricted length
+    ///
+    /// Although character strings are typically restricted to being no longer than 255 characters,
+    /// some modern standards allow longer strings to be encoded.
+    pub fn emit_character_data_unrestricted<S: AsRef<[u8]>>(&mut self, data: S) -> ProtoResult<()> {
         // first the length is written
-        self.emit(char_bytes.len() as u8)?;
-        self.write_slice(char_bytes)
+        let data = data.as_ref();
+        self.emit(data.len() as u8)?;
+        self.write_slice(data)
     }
 
     /// Emit one byte into the buffer
@@ -323,26 +333,8 @@ impl<'a> BinEncoder<'a> {
     }
 
     fn write_slice(&mut self, data: &[u8]) -> ProtoResult<()> {
-        // replacement case, the necessary space should have been reserved already...
-        if self.offset < self.buffer.len() {
-            let offset = self.offset;
-
-            self.buffer.enforced_write(0, |buffer| {
-                let mut offset = offset;
-                for b in data {
-                    *buffer
-                        .get_mut(offset)
-                        .expect("could not get index at offset for slice") = *b;
-                    offset += 1;
-                }
-            })?;
-        } else {
-            self.buffer
-                .enforced_write(data.len(), |buffer| buffer.extend_from_slice(data))?;
-        }
-
+        self.buffer.write(self.offset, data)?;
         self.offset += data.len();
-
         Ok(())
     }
 
@@ -399,8 +391,7 @@ impl<'a> BinEncoder<'a> {
         let len = T::size_of();
 
         // resize the buffer
-        self.buffer
-            .enforced_write(len, |buffer| buffer.resize(index + len, 0))?;
+        self.buffer.reserve(self.offset, len)?;
 
         // update the offset
         self.offset += len;
@@ -512,6 +503,7 @@ mod tests {
     use crate::{
         op::{Message, Query},
         rr::{rdata::SRV, RData, Record, RecordType},
+        serialize::binary::BinDecodable,
     };
     use crate::{rr::Name, serialize::binary::BinDecoder};
 
@@ -661,5 +653,12 @@ mod tests {
         assert_eq!(bytes.len(), 130);
         // check re-serializing
         assert!(Message::from_vec(&bytes).is_ok());
+    }
+
+    #[test]
+    fn test_fuzzed() {
+        const MESSAGE: &[u8] = include_bytes!("../../../tests/test-data/fuzz-long.rdata");
+        let msg = Message::from_bytes(MESSAGE).unwrap();
+        msg.to_bytes().unwrap();
     }
 }

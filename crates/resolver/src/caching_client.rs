@@ -191,7 +191,7 @@ where
         };
 
         // TODO: take all records and cache them?
-        //  if it's DNSSec they must be signed, otherwise?
+        //  if it's DNSSEC they must be signed, otherwise?
         let records: Result<Records, ResolveError> = match response_message {
             // this is the only cacheable form
             Err(ResolveError {
@@ -253,7 +253,7 @@ where
     ///  and a record for the name, regardless of CNAME presence, what have you
     ///  ultimately does not exist.
     ///
-    /// This also handles empty responses in the same way. When performing DNSSec enabled queries, we should
+    /// This also handles empty responses in the same way. When performing DNSSEC enabled queries, we should
     ///  never enter here, and should never cache unless verified requests.
     ///
     /// TODO: should this should be expanded to do a forward lookup? Today, this will fail even if there are
@@ -262,7 +262,7 @@ where
     /// # Arguments
     ///
     /// * `message` - message to extract SOA, etc, from for caching failed requests
-    /// * `valid_nsec` - species that in DNSSec mode, this request is safe to cache
+    /// * `valid_nsec` - species that in DNSSEC mode, this request is safe to cache
     /// * `negative_ttl` - this should be the SOA minimum for negative ttl
     fn handle_nxdomain(
         is_dnssec: bool,
@@ -302,7 +302,7 @@ where
         options: DnsRequestOptions,
         is_dnssec: bool,
         query: &Query,
-        mut response: DnsResponse,
+        response: DnsResponse,
         mut preserved_records: Vec<(Record, u32)>,
     ) -> Result<Records, ResolveError> {
         // initial ttl is what CNAMES for min usage
@@ -358,6 +358,7 @@ where
                 };
 
             // take all answers. // TODO: following CNAMES?
+            let mut response = response.into_message();
             let answers = response.take_answers();
             let additionals = response.take_additionals();
             let name_servers = response.take_name_servers();
@@ -439,7 +440,7 @@ where
             })
         } else {
             // TODO: review See https://tools.ietf.org/html/rfc2308 for NoData section
-            // Note on DNSSec, in secure_client_handle, if verify_nsec fails then the request fails.
+            // Note on DNSSEC, in secure_client_handle, if verify_nsec fails then the request fails.
             //   this will mean that no unverified negative caches will make it to this point and be stored
             Err(Self::handle_nxdomain(
                 is_dnssec,
@@ -612,7 +613,7 @@ mod tests {
             86400,
             RData::CNAME(Name::from_str("actual.example.com.").unwrap()),
         )]);
-        Ok(message.into())
+        Ok(DnsResponse::from_message(message).unwrap())
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -632,7 +633,7 @@ mod tests {
                 Name::from_str("www.example.com.").unwrap(),
             )),
         )]);
-        Ok(message.into())
+        Ok(DnsResponse::from_message(message).unwrap())
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -647,7 +648,7 @@ mod tests {
             86400,
             RData::NS(Name::from_str("www.example.com.").unwrap()),
         )]);
-        Ok(message.into())
+        Ok(DnsResponse::from_message(message).unwrap())
     }
 
     fn no_recursion_on_query_test(query_type: RecordType) {
@@ -715,7 +716,7 @@ mod tests {
     fn test_single_srv_query_response() {
         let cache = DnsLru::new(1, dns_lru::TtlConfig::default());
 
-        let mut message = srv_message().unwrap();
+        let mut message = srv_message().unwrap().into_message();
         message.add_answer(Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
@@ -734,7 +735,10 @@ mod tests {
             ),
         ]);
 
-        let client = mock(vec![error(), Ok(message)]);
+        let client = mock(vec![
+            error(),
+            Ok(DnsResponse::from_message(message).unwrap()),
+        ]);
         let client = CachingClient::with_cache(cache, client, false);
 
         let ips = block_on(CachingClient::inner_lookup(
@@ -784,7 +788,7 @@ mod tests {
     //         ),
     //     ]);
 
-    //     let mut client = mock(vec![error(), Ok(message.into()), srv_message()]);
+    //     let mut client = mock(vec![error(), Ok(DnsResponse::from_message(message).unwrap()), srv_message()]);
 
     //     let ips = QueryState::lookup(
     //         Query::query(
@@ -816,7 +820,7 @@ mod tests {
     fn test_single_ns_query_response() {
         let cache = DnsLru::new(1, dns_lru::TtlConfig::default());
 
-        let mut message = ns_message().unwrap();
+        let mut message = ns_message().unwrap().into_message();
         message.add_answer(Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
@@ -835,7 +839,10 @@ mod tests {
             ),
         ]);
 
-        let client = mock(vec![error(), Ok(message)]);
+        let client = mock(vec![
+            error(),
+            Ok(DnsResponse::from_message(message).unwrap()),
+        ]);
         let client = CachingClient::with_cache(cache, client, false);
 
         let ips = block_on(CachingClient::inner_lookup(
@@ -878,7 +885,7 @@ mod tests {
             DnsRequestOptions::default(),
             false,
             &Query::query(Name::from_str("ttl.example.com.").unwrap(), RecordType::A),
-            message.into(),
+            DnsResponse::from_message(message).unwrap(),
             vec![],
         );
 
@@ -999,7 +1006,7 @@ mod tests {
     fn test_no_error_on_dot_local_no_mdns() {
         let cache = DnsLru::new(1, dns_lru::TtlConfig::default());
 
-        let mut message = srv_message().unwrap();
+        let mut message = srv_message().unwrap().into_message();
         message.add_query(Query::query(
             Name::from_ascii("www.example.local.").unwrap(),
             RecordType::A,
@@ -1010,7 +1017,10 @@ mod tests {
             RData::A(Ipv4Addr::new(127, 0, 0, 1)),
         ));
 
-        let client = mock(vec![error(), Ok(message)]);
+        let client = mock(vec![
+            error(),
+            Ok(DnsResponse::from_message(message).unwrap()),
+        ]);
         let mut client = CachingClient::with_cache(cache, client, false);
 
         assert!(block_on(client.lookup(

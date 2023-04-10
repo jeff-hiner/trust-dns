@@ -17,11 +17,11 @@ use time::Duration;
 
 use trust_dns_client::client::Client;
 use trust_dns_client::client::{ClientConnection, SyncClient};
-use trust_dns_client::op::ResponseCode;
+use trust_dns_client::proto::op::ResponseCode;
 use trust_dns_client::proto::rr::dnssec::rdata::tsig::TsigAlgorithm;
-use trust_dns_client::rr::dnssec::tsig::TSigner;
-use trust_dns_client::rr::Name;
-use trust_dns_client::rr::{RData, Record, RecordType};
+use trust_dns_client::proto::rr::dnssec::tsig::TSigner;
+use trust_dns_client::proto::rr::Name;
+use trust_dns_client::proto::rr::{RData, Record, RecordType};
 use trust_dns_client::tcp::TcpClientConnection;
 use trust_dns_client::udp::UdpClientConnection;
 use trust_dns_compatibility::named_process;
@@ -32,11 +32,8 @@ where
     CC: ClientConnection,
 {
     let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
-    let pem_path = format!(
-        "{}/tests/compatibility-tests/tests/conf/tsig.raw",
-        server_path
-    );
-    println!("loading key from: {}", pem_path);
+    let pem_path = format!("{server_path}/tests/compatibility-tests/tests/conf/tsig.raw");
+    println!("loading key from: {pem_path}");
     let mut key_file = File::open(pem_path).expect("could not find key file");
 
     let mut key = Vec::new();

@@ -96,6 +96,7 @@ impl Resolver {
     /// # Returns
     ///
     /// A new `Resolver` or an error if there was an error with the configuration.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> io::Result<Self> {
         Self::new(ResolverConfig::default(), ResolverOpts::default())
     }
@@ -175,7 +176,7 @@ mod tests {
         let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default()).unwrap();
 
         let response = resolver.lookup_ip("www.example.com.").unwrap();
-        println!("response records: {:?}", response);
+        println!("response records: {response:?}");
 
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
@@ -199,7 +200,7 @@ mod tests {
         let resolver = Resolver::from_system_conf().unwrap();
 
         let response = resolver.lookup_ip("www.example.com.").unwrap();
-        println!("response records: {:?}", response);
+        println!("response records: {response:?}");
 
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {

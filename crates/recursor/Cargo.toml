@@ -3,13 +3,14 @@ name = "trust-dns-recursor"
 version = "0.22.0"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
+rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
 description = """
 *WARNING* This library is experimental
 
-Trust-DNS Recursor is a safe and secure DNS recursive resolver with DNSSec support.
+Trust-DNS Recursor is a safe and secure DNS recursive resolver with DNSSEC support.
  Trust-DNS is based on the Tokio and Futures libraries, which means
  it should be easily integrated into other software that also use those
  libraries. This library can be used as in the server and binary for performing recursive lookups.
@@ -17,7 +18,7 @@ Trust-DNS Recursor is a safe and secure DNS recursive resolver with DNSSec suppo
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns-recursor"
-homepage = "http://www.trust-dns.org/index.html"
+homepage = "https://trust-dns.org/"
 repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The
@@ -86,7 +87,7 @@ thiserror = "1.0.20"
 time = "0.3"
 tracing = "0.1.30"
 tokio = { version = "1.0", features = ["net"] }
-toml = "0.5"
+toml = "0.7"
 trust-dns-proto = { version = "0.22.0", path = "../proto" }
 trust-dns-resolver = { version = "0.22.0", path = "../resolver" }
 

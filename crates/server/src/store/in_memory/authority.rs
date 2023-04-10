@@ -8,7 +8,6 @@
 //! All authority related types
 
 use std::{
-    borrow::Borrow,
     collections::{BTreeMap, HashSet},
     ops::DerefMut,
     sync::Arc,
@@ -16,6 +15,8 @@ use std::{
 
 use cfg_if::cfg_if;
 use futures_util::future::{self, TryFutureExt};
+#[cfg(feature = "dnssec")]
+use time::OffsetDateTime;
 use tracing::{debug, error, warn};
 
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -23,17 +24,18 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "dnssec")]
 use crate::{
     authority::DnssecAuthority,
-    client::rr::{
-        dnssec::{DnsSecResult, SigSigner, SupportedAlgorithms},
-        rdata::{key::KEY, DNSSECRData},
+    proto::rr::dnssec::{
+        rdata::{key::KEY, DNSSECRData, NSEC, SIG},
+        {tbs, DnsSecResult, SigSigner, SupportedAlgorithms},
     },
 };
+
 use crate::{
     authority::{
         AnyRecords, AuthLookup, Authority, LookupError, LookupOptions, LookupRecords, LookupResult,
         MessageRequest, UpdateResult, ZoneType,
     },
-    client::{
+    proto::{
         op::ResponseCode,
         rr::{
             rdata::SOA,
@@ -42,6 +44,8 @@ use crate::{
     },
     server::RequestInfo,
 };
+#[cfg(feature = "dnssec")]
+use std::borrow::Borrow;
 #[cfg(all(feature = "dnssec", feature = "testing"))]
 use std::ops::Deref;
 
@@ -90,9 +94,9 @@ impl InMemoryAuthority {
             .and_then(Record::data)
             .and_then(RData::as_soa)
             .map(SOA::serial)
-            .ok_or_else(|| format!("SOA record must be present: {}", origin))?;
+            .ok_or_else(|| format!("SOA record must be present: {origin}"))?;
 
-        let iter = records.into_iter().map(|(_key, record)| record);
+        let iter = records.into_values();
 
         // add soa to the records
         for rrset in iter {
@@ -102,8 +106,7 @@ impl InMemoryAuthority {
             for record in rrset.records_without_rrsigs() {
                 if !inner.upsert(record.clone(), serial, this.class) {
                     return Err(format!(
-                        "Failed to insert {} {} to zone: {}",
-                        name, rr_type, origin
+                        "Failed to insert {name} {rr_type} to zone: {origin}"
                     ));
                 };
             }
@@ -427,7 +430,7 @@ impl InnerInMemory {
             // we need to change the name to the query name in the result set since this was a wildcard
             .map(|rrset| {
                 let mut new_answer =
-                    RecordSet::new(name.borrow(), rrset.record_type(), rrset.ttl());
+                    RecordSet::with_ttl(Name::from(name), rrset.record_type(), rrset.ttl());
 
                 let records;
                 let _rrsigs: Vec<&Record>;
@@ -589,11 +592,11 @@ impl InnerInMemory {
 
         #[cfg(not(feature = "dnssec"))]
         fn is_nsec(_upsert_type: RecordType, _occupied_type: RecordType) -> bool {
-            // TODO: we should make the DNSSec RecordTypes always visible
+            // TODO: we should make the DNSSEC RecordTypes always visible
             false
         }
 
-        /// returns true if an only if the label can not cooccupy space with the checked type
+        /// returns true if an only if the label can not co-occupy space with the checked type
         #[allow(clippy::nonminimal_bool)]
         fn label_does_not_allow_multiple(
             upsert_type: RecordType,
@@ -664,8 +667,6 @@ impl InnerInMemory {
     /// Dummy implementation for when DNSSEC is disabled.
     #[cfg(feature = "dnssec")]
     fn nsec_zone(&mut self, origin: &LowerName, dns_class: DNSClass) {
-        use crate::client::rr::rdata::NSEC;
-
         // only create nsec records for secure zones
         if self.secure_keys.is_empty() {
             return;
@@ -744,10 +745,6 @@ impl InnerInMemory {
         zone_ttl: u32,
         zone_class: DNSClass,
     ) -> DnsSecResult<()> {
-        use crate::client::rr::dnssec::tbs;
-        use crate::client::rr::rdata::SIG;
-        use time::OffsetDateTime;
-
         let inception = OffsetDateTime::now_utc();
 
         rr_set.clear_rrsigs();

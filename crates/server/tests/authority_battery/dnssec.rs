@@ -5,10 +5,10 @@ use std::str::FromStr;
 
 use futures_executor::block_on;
 
-use trust_dns_client::op::{Header, Query};
-use trust_dns_client::rr::dnssec::{Algorithm, SupportedAlgorithms, Verifier};
-use trust_dns_client::rr::{DNSClass, Name, RData, Record, RecordType};
+use trust_dns_proto::op::{Header, Query};
 use trust_dns_proto::rr::dnssec::rdata::DNSKEY;
+use trust_dns_proto::rr::dnssec::{Algorithm, SupportedAlgorithms, Verifier};
+use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
 use trust_dns_proto::xfer;
 use trust_dns_server::authority::{AuthLookup, Authority, DnssecAuthority, LookupOptions};
 use trust_dns_server::server::{Protocol, RequestInfo};
@@ -190,7 +190,7 @@ pub fn test_nsec_nodata<A: Authority<Lookup = AuthLookup>>(authority: A, keys: &
         .cloned()
         .partition(|r| r.record_type() == RecordType::NSEC);
 
-    println!("nsec_records: {:?}", nsec_records);
+    println!("nsec_records: {nsec_records:?}");
 
     // there should only be one, and it should match the www.example.com name
     assert_eq!(nsec_records.len(), 1);
@@ -220,7 +220,7 @@ pub fn test_nsec_nxdomain_start<A: Authority<Lookup = AuthLookup>>(authority: A,
         .cloned()
         .partition(|r| r.record_type() == RecordType::NSEC);
 
-    println!("nsec_records: {:?}", nsec_records);
+    println!("nsec_records: {nsec_records:?}");
 
     // there should only be one, and it should match the www.example.com name
     assert!(!nsec_records.is_empty());
@@ -252,7 +252,7 @@ pub fn test_nsec_nxdomain_middle<A: Authority<Lookup = AuthLookup>>(authority: A
         .cloned()
         .partition(|r| r.record_type() == RecordType::NSEC);
 
-    println!("nsec_records: {:?}", nsec_records);
+    println!("nsec_records: {nsec_records:?}");
 
     // there should only be one, and it should match the www.example.com name
     assert!(!nsec_records.is_empty());
@@ -286,7 +286,7 @@ pub fn test_nsec_nxdomain_wraps_end<A: Authority<Lookup = AuthLookup>>(
         .cloned()
         .partition(|r| r.record_type() == RecordType::NSEC);
 
-    println!("nsec_records: {:?}", nsec_records);
+    println!("nsec_records: {nsec_records:?}");
 
     // there should only be one, and it should match the www.example.com name
     assert!(!nsec_records.is_empty());
@@ -342,7 +342,7 @@ pub fn test_rfc_6975_supported_algorithms<A: Authority<Lookup = AuthLookup>>(
 pub fn verify(records: &[Record], rrsig_records: &[Record], keys: &[DNSKEY]) {
     let record_name = records.first().unwrap().name();
     let record_type = records.first().unwrap().record_type();
-    println!("record_name: {}, type: {}", record_name, record_type);
+    println!("record_name: {record_name}, type: {record_type}");
 
     // should be signed with all the keys
     assert!(keys.iter().all(|key| rrsig_records
@@ -364,7 +364,7 @@ pub fn verify(records: &[Record], rrsig_records: &[Record], keys: &[DNSKEY]) {
         .filter(|rrsig| rrsig.type_covered() == record_type)
         .any(|rrsig| key
             .verify_rrsig(record_name, DNSClass::IN, rrsig, records)
-            .map_err(|e| println!("failed to verify: {}", e))
+            .map_err(|e| println!("failed to verify: {e}"))
             .is_ok())));
 }
 
@@ -379,7 +379,7 @@ pub fn add_signers<A: DnssecAuthority>(authority: &mut A) -> Vec<DNSKEY> {
     // rsa
     {
         let key_config = KeyConfig {
-            key_path: "../../tests/test-data/named_test_configs/dnssec/rsa_2048.pem".to_string(),
+            key_path: "../../tests/test-data/test_configs/dnssec/rsa_2048.pem".to_string(),
             password: Some("123456".to_string()),
             algorithm: Algorithm::RSASHA512.to_string(),
             signer_name: Some(signer_name.to_string()),
@@ -399,7 +399,7 @@ pub fn add_signers<A: DnssecAuthority>(authority: &mut A) -> Vec<DNSKEY> {
     // // ecdsa_p256
     // {
     //     let key_config = KeyConfig {
-    //         key_path: "../../tests/test-data/named_test_configs/dnssec/ecdsa_p256.pem".to_string(),
+    //         key_path: "../../tests/test-data/test_configs/dnssec/ecdsa_p256.pem".to_string(),
     //         password: None,
     //         algorithm: Algorithm::ECDSAP256SHA256.to_string(),
     //         signer_name: Some(signer_name.clone().to_string()),
@@ -416,7 +416,7 @@ pub fn add_signers<A: DnssecAuthority>(authority: &mut A) -> Vec<DNSKEY> {
     // // ecdsa_p384
     // {
     //     let key_config = KeyConfig {
-    //         key_path: "../../tests/test-data/named_test_configs/dnssec/ecdsa_p384.pem".to_string(),
+    //         key_path: "../../tests/test-data/test_configs/dnssec/ecdsa_p384.pem".to_string(),
     //         password: None,
     //         algorithm: Algorithm::ECDSAP384SHA384.to_string(),
     //         signer_name: Some(signer_name.clone().to_string()),
@@ -434,7 +434,7 @@ pub fn add_signers<A: DnssecAuthority>(authority: &mut A) -> Vec<DNSKEY> {
     #[cfg(feature = "dnssec-ring")]
     {
         let key_config = KeyConfig {
-            key_path: "../../tests/test-data/named_test_configs/dnssec/ed25519.pk8".to_string(),
+            key_path: "../../tests/test-data/test_configs/dnssec/ed25519.pk8".to_string(),
             password: None,
             algorithm: Algorithm::ED25519.to_string(),
             signer_name: Some(signer_name.to_string()),
@@ -458,7 +458,7 @@ macro_rules! define_dnssec_test {
         $(
             #[test]
             fn $f () {
-                let mut authority = crate::$new("../../tests/test-data/named_test_configs/example.com.zone", module_path!(), stringify!($f));
+                let mut authority = crate::$new("../../tests/test-data/test_configs/example.com.zone", module_path!(), stringify!($f));
                 let keys = crate::authority_battery::dnssec::add_signers(&mut authority);
                 crate::authority_battery::dnssec::$f(authority, &keys);
             }

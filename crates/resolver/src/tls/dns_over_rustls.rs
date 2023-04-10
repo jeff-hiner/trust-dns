@@ -44,6 +44,9 @@ lazy_static! {
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
+        // The port (853) of DOT is for dns dedicated, SNI is unnecessary. (ISP block by the SNI name)
+        client_config.enable_sni = false;
+
         client_config.alpn_protocols.push(ALPN_H2.to_vec());
 
         Arc::new(client_config)

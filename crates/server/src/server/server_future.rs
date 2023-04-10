@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 #[cfg(feature = "dns-over-rustls")]
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::{Mutex, SemaphorePermit};
@@ -23,11 +23,10 @@ use trust_dns_proto::rr::Record;
 use crate::proto::openssl::tls_server::*;
 use crate::{
     authority::{MessageRequest, MessageResponseBuilder},
-    client::op::LowerQuery,
     proto::{
         error::ProtoError,
         iocompat::AsyncIoTokioAsStd,
-        op::{Edns, Header, Query, ResponseCode},
+        op::{Edns, Header, LowerQuery, Query, ResponseCode},
         serialize::binary::{BinDecodable, BinDecoder},
         tcp::TcpStream,
         udp::UdpStream,
@@ -97,6 +96,8 @@ impl<T: RequestHandler> ServerFuture<T> {
                         self::handle_raw_request(message, Protocol::Udp, handler, stream_handle)
                             .await;
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
 
                 // TODO: let's consider capturing all the initial configuration details so that the socket could be recreated...
@@ -186,6 +187,8 @@ impl<T: RequestHandler> ServerFuture<T> {
                             .await;
                         }
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
             }
         });
@@ -323,6 +326,8 @@ impl<T: RequestHandler> ServerFuture<T> {
                             .await;
                         }
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
             }
         });
@@ -393,7 +398,7 @@ impl<T: RequestHandler> ServerFuture<T> {
             .map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("error creating TLS acceptor: {}", e),
+                format!("error creating TLS acceptor: {e}"),
             )
         })?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_acceptor));
@@ -465,6 +470,8 @@ impl<T: RequestHandler> ServerFuture<T> {
                             .await;
                         }
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
             }
         });
@@ -535,13 +542,13 @@ impl<T: RequestHandler> ServerFuture<T> {
 
         let dns_hostname: Arc<str> = Arc::from(dns_hostname);
         let handler = self.handler.clone();
-        debug!("registered https: {:?}", listener);
+        debug!("registered https: {listener:?}");
 
         let tls_acceptor = tls_server::new_acceptor(certificate_and_key.0, certificate_and_key.1)
             .map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("error creating TLS acceptor: {}", e),
+                format!("error creating TLS acceptor: {e}"),
             )
         })?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_acceptor));
@@ -557,18 +564,14 @@ impl<T: RequestHandler> ServerFuture<T> {
                     let (tcp_stream, src_addr) = match tcp_stream {
                         Ok((t, s)) => (t, s),
                         Err(e) => {
-                            debug!("error receiving HTTPS tcp_stream error: {}", e);
+                            debug!("error receiving HTTPS tcp_stream error: {e}");
                             continue;
                         }
                     };
 
                     // verify that the src address is safe for responses
                     if let Err(e) = sanitize_src_address(src_addr) {
-                        warn!(
-                            "address can not be responded to {src_addr}: {e}",
-                            src_addr = src_addr,
-                            e = e
-                        );
+                        warn!("address can not be responded to {src_addr}: {e}");
                         continue;
                     }
 
@@ -577,7 +580,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                     let dns_hostname = dns_hostname.clone();
 
                     inner_join_set.spawn(async move {
-                        debug!("starting HTTPS request from: {}", src_addr);
+                        debug!("starting HTTPS request from: {src_addr}");
 
                         // TODO: need to consider timeout of total connect...
                         // take the created stream...
@@ -586,14 +589,16 @@ impl<T: RequestHandler> ServerFuture<T> {
                         let tls_stream = match tls_stream {
                             Ok(tls_stream) => tls_stream,
                             Err(e) => {
-                                debug!("https handshake src: {} error: {}", src_addr, e);
+                                debug!("https handshake src: {src_addr} error: {e}");
                                 return;
                             }
                         };
-                        debug!("accepted HTTPS request from: {}", src_addr);
+                        debug!("accepted HTTPS request from: {src_addr}");
 
                         h2_handler(handler, tls_stream, src_addr, dns_hostname).await;
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
             }
         });
@@ -674,6 +679,8 @@ impl<T: RequestHandler> ServerFuture<T> {
                             warn!("quic stream processing failed from {src_addr}: {e}")
                         }
                     });
+
+                    reap_tasks(&mut inner_join_set);
                 }
             }
         });
@@ -715,6 +722,11 @@ impl<T: RequestHandler> ServerFuture<T> {
     }
 }
 
+/// Reap finished tasks from a `JoinSet`, without awaiting or blocking.
+fn reap_tasks(join_set: &mut JoinSet<()>) {
+    while FutureExt::now_or_never(join_set.join_next()).is_some() {}
+}
+
 pub(crate) async fn handle_raw_request<T: RequestHandler>(
     message: SerialMessage,
     protocol: Protocol,
@@ -744,6 +756,7 @@ struct ReportingResponseHandler<R: ResponseHandler> {
 }
 
 #[async_trait::async_trait]
+#[allow(clippy::uninlined_format_args)]
 impl<R: ResponseHandler> ResponseHandler for ReportingResponseHandler<R> {
     async fn send_response<'a>(
         &mut self,
@@ -761,7 +774,7 @@ impl<R: ResponseHandler> ResponseHandler for ReportingResponseHandler<R> {
         let id = self.request_header.id();
         let rid = response_info.id();
         if id != rid {
-            warn!("request id:{} does not match response id:{}", id, rid);
+            warn!("request id:{id} does not match response id:{rid}");
             debug_assert_eq!(id, rid, "request id and response id should match");
         }
 
@@ -901,16 +914,16 @@ pub(crate) async fn handle_request<R: ResponseHandler, T: RequestHandler>(
 fn sanitize_src_address(src: SocketAddr) -> Result<(), String> {
     // currently checks that the src address aren't either the undefined IPv4 or IPv6 address, and not port 0.
     if src.port() == 0 {
-        return Err(format!("cannot respond to src on port 0: {}", src));
+        return Err(format!("cannot respond to src on port 0: {src}"));
     }
 
     fn verify_v4(src: Ipv4Addr) -> Result<(), String> {
         if src.is_unspecified() {
-            return Err(format!("cannot respond to unspecified v4 addr: {}", src));
+            return Err(format!("cannot respond to unspecified v4 addr: {src}"));
         }
 
         if src.is_broadcast() {
-            return Err(format!("cannot respond to broadcast v4 addr: {}", src));
+            return Err(format!("cannot respond to broadcast v4 addr: {src}"));
         }
 
         // TODO: add check for is_reserved when that stabilizes
@@ -920,7 +933,7 @@ fn sanitize_src_address(src: SocketAddr) -> Result<(), String> {
 
     fn verify_v6(src: Ipv6Addr) -> Result<(), String> {
         if src.is_unspecified() {
-            return Err(format!("cannot respond to unspecified v6 addr: {}", src));
+            return Err(format!("cannot respond to unspecified v6 addr: {src}"));
         }
 
         Ok(())

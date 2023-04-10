@@ -179,7 +179,10 @@ where
                     return Poll::Ready(Ok(()));
                 }
                 Poll::Ready(Some(Err(err))) => {
-                    warn!("io_stream hit an error, shutting down: {}", err);
+                    debug!(
+                        error = err.as_dyn(),
+                        "io_stream hit an error, shutting down"
+                    );
 
                     return Poll::Ready(Err(err));
                 }
@@ -220,7 +223,7 @@ where
 
 /// A wrapper for a future DnsExchange connection.
 ///
-/// DnsExchangeConnect is clonable, making it possible to share this if the connection
+/// DnsExchangeConnect is cloneable, making it possible to share this if the connection
 ///  will be shared across threads.
 ///
 /// The future will return a tuple of the DnsExchange (for sending messages) and a background
@@ -324,7 +327,7 @@ where
                         }
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Err(error)) => {
-                            debug!("stream errored while connecting: {:?}", error);
+                            debug!(error = error.as_dyn(), "stream errored while connecting");
                             next = Self::FailAll {
                                 error,
                                 outbound_messages: outbound_messages

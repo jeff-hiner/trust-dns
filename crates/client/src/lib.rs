@@ -32,6 +32,7 @@
     clippy::needless_doctest_main,
     clippy::single_component_path_imports,
     clippy::upper_case_acronyms, // can be removed on a major release boundary
+    clippy::bool_to_int_with_if,
 )]
 #![recursion_limit = "1024"]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -64,7 +65,7 @@
 //! trust-dns-client = "*"
 //! ```
 //!
-//! By default DNSSec validation is built in with OpenSSL, this can be disabled with:
+//! By default DNSSEC validation is built in with OpenSSL, this can be disabled with:
 //!
 //! ```toml
 //! [dependencies]
@@ -73,7 +74,7 @@
 //!
 //! ## Objects
 //!
-//! There are two variations of implementations of the Client. The `SyncClient`, a synchronous client, and the `AsyncClient`, a Tokio async client. `SyncClient` is an implementation of the `Client` trait, there is another implementation, `SyncDnssecClient`, which validates DNSSec records. For these basic examples we'll only look at the `SyncClient`
+//! There are two variations of implementations of the Client. The `SyncClient`, a synchronous client, and the `AsyncClient`, a Tokio async client. `SyncClient` is an implementation of the `Client` trait, there is another implementation, `SyncDnssecClient`, which validates DNSSEC records. For these basic examples we'll only look at the `SyncClient`
 //!
 //! First we must decide on the type of connection, there are three supported by Trust-DNS today, UDP, TCP and TLS. TLS requires OpenSSL by default, see also [trust-dns-native-tls](https://docs.rs/trust-dns-native-tls) and [trust-dns-rustls](https://docs.rs/trust-dns-rustls) for other TLS options.
 //!
@@ -91,7 +92,7 @@
 //! let client = SyncClient::new(conn);
 //! ```
 //!
-//! At this point the client is ready to be used. See also `client::SyncDnssecClient` for DNSSec validation. The rest of these examples will assume that the above boilerplate has already been performed.
+//! At this point the client is ready to be used. See also `client::SyncDnssecClient` for DNSSEC validation. The rest of these examples will assume that the above boilerplate has already been performed.
 //!
 //! ## Querying
 //!
@@ -157,7 +158,7 @@
 //! use trust_dns_client::client::{Client, SyncClient};
 //! use trust_dns_client::udp::UdpClientConnection;
 //! use trust_dns_client::rr::{Name, RData, Record, RecordType};
-//! use trust_dns_client::rr::dnssec::{Algorithm, SigSigner, KeyPair};
+//! use trust_dns_client::proto::rr::dnssec::{Algorithm, SigSigner, KeyPair};
 //! use trust_dns_client::op::ResponseCode;
 //! use trust_dns_client::rr::rdata::key::KEY;
 //!

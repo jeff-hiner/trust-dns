@@ -1,4 +1,4 @@
-[![minimum rustc: 1.59](https://img.shields.io/badge/minimum%20rustc-1.59-green?logo=rust)](https://www.whatrustisit.com)
+[![minimum rustc: 1.60](https://img.shields.io/badge/minimum%20rustc-1.60-green?logo=rust)](https://www.whatrustisit.com)
 [![Build Status](https://github.com/bluejekyll/trust-dns/workflows/test/badge.svg?branch=main)](https://github.com/bluejekyll/trust-dns/actions?query=workflow%3Atest)
 [![codecov](https://codecov.io/gh/bluejekyll/trust-dns/branch/main/graph/badge.svg)](https://codecov.io/gh/bluejekyll/trust-dns)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
@@ -19,7 +19,7 @@ This repo consists of multiple crates:
 | **Trust-DNS** | [![](https://img.shields.io/crates/v/trust-dns.svg)](https://crates.io/crates/trust-dns) Binaries for running a DNS authoritative server.                                                                                                                                                                                                  |
 | **Proto**     | [![](https://img.shields.io/crates/v/trust-dns-proto.svg)](https://crates.io/crates/trust-dns-proto) [![trust-dns-proto](https://docs.rs/trust-dns-proto/badge.svg)](https://docs.rs/trust-dns-proto) Raw DNS library, exposes an unstable API and only for use by the other Trust-DNS libraries, not intended for end-user use.           |
 | **Client**    | [![](https://img.shields.io/crates/v/trust-dns-client.svg)](https://crates.io/crates/trust-dns-client) [![trust-dns-client](https://docs.rs/trust-dns-client/badge.svg)](https://docs.rs/trust-dns-client) Used for sending `query`, `update`, and `notify` messages directly to a DNS server.                                             |
-| **Server**    | [![](https://img.shields.io/crates/v/trust-dns-server.svg)](https://crates.io/crates/trust-dns-server) [![trust-dns-server](https://docs.rs/trust-dns-server/badge.svg)](https://docs.rs/trust-dns-server) Use to host DNS records, this also has a `named` binary for running in a daemon form.                                           |
+| **Server**    | [![](https://img.shields.io/crates/v/trust-dns-server.svg)](https://crates.io/crates/trust-dns-server) [![trust-dns-server](https://docs.rs/trust-dns-server/badge.svg)](https://docs.rs/trust-dns-server) Use to host DNS records, this also has a `trust-dns` binary for running in a daemon form.                                           |
 | **Resolver**  | [![](https://img.shields.io/crates/v/trust-dns-resolver.svg)](https://crates.io/crates/trust-dns-resolver) [![trust-dns-resolver](https://docs.rs/trust-dns-resolver/badge.svg)](https://docs.rs/trust-dns-resolver) Utilizes the client library to perform DNS resolution. Can be used in place of the standard OS resolution facilities. |
 
 # Goals
@@ -51,14 +51,14 @@ as high level interfaces, which is a bit more rare.
 
 | Feature                                                                                                         | Description                                           |
 | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| [SyncDnssecClient](https://docs.rs/trust-dns/0.11.0/trust_dns/client/struct.SyncDnssecClient.html)              | DNSSec validation                                     |
-| [create](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.create)                     | atomic create of a record, with authenticated request |
-| [append](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.append)                     | verify existence of a record and append to it         |
-| [compare_and_swap](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.compare_and_swap) | atomic (depends on server) compare and swap           |
-| [delete_by_rdata](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.delete_by_rdata)   | delete a specific record                              |
-| [delete_rrset](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.delete_rrset)         | delete an entire record set                           |
-| [delete_all](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.delete_all)             | delete all records sets with a given name             |
-| [notify](https://docs.rs/trust-dns/0.11.0/trust_dns/client/trait.Client.html#method.notify)                     | notify server that it should reload a zone            |
+| [SyncDnssecClient](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/struct.SyncDnssecClient.html)              | DNSSEC validation                                     |
+| [create](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.create)                     | atomic create of a record, with authenticated request |
+| [append](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.append)                     | verify existence of a record and append to it         |
+| [compare_and_swap](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.compare_and_swap) | atomic (depends on server) compare and swap           |
+| [delete_by_rdata](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.delete_by_rdata)   | delete a specific record                              |
+| [delete_rrset](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.delete_rrset)         | delete an entire record set                           |
+| [delete_all](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.delete_all)             | delete all records sets with a given name             |
+| [notify](https://docs.rs/trust-dns-client/latest/trust_dns_client/client/trait.Client.html#method.notify)                     | notify server that it should reload a zone            |
 
 ## Server
 
@@ -87,7 +87,7 @@ a restart of the server process.
 
 ### DNS-over-TLS and DNS-over-HTTPS on the Server
 
-Support of TLS on the Server is managed through a pkcs12 der file. The documentation is captured in the example test config file, [example.toml](https://github.com/bluejekyll/trust-dns/blob/main/tests/test-data/named_test_configs/example.toml). A registered certificate to the server can be pinned to the Client with the `add_ca()` method. Alternatively, as the client uses the rust-native-tls library, it should work with certificate signed by any standard CA.
+Support of TLS on the Server is managed through a pkcs12 der file. The documentation is captured in the example test config file, [example.toml](https://github.com/bluejekyll/trust-dns/blob/main/tests/test-data/test_configs/example.toml). A registered certificate to the server can be pinned to the Client with the `add_ca()` method. Alternatively, as the client uses the rust-native-tls library, it should work with certificate signed by any standard CA.
 
 ## DNS-over-TLS and DNS-over-HTTPS
 
@@ -97,7 +97,7 @@ To use with the `Client`, the `TlsClientConnection` or `HttpsClientConnection` s
 
 To enable DoT one of the features `dns-over-native-tls`, `dns-over-openssl`, or `dns-over-rustls` must be enabled, `dns-over-https-rustls` is used for DoH.
 
-## DNSSec status
+## DNSSEC status
 
 Currently the root key is hardcoded into the system. This gives validation of
 DNSKEY and DS records back to the root. NSEC is implemented, but not NSEC3.
@@ -175,7 +175,7 @@ presume that the trust-dns repos have already been synced to the local system:
 
 ### Minimum Rust Version
 
-- The current minimum rustc version for this project is `1.59`
+- The current minimum rustc version for this project is `1.60`
 - OpenSSL development libraries (optional in client and resolver, min version 1.0.2)
 
 ### Mac OS X: using homebrew
@@ -246,21 +246,21 @@ so this should allow it to work with most internal loads.
 - Verify the version
 
 ```shell
-./target/release/named --version
+./target/release/trust-dns --version
 ```
 
 - Get help
 
 ```shell
-./target/release/named --help
+./target/release/trust-dns --help
 ```
 
-- Launch `named` server with test config
+- Launch `trust-dns` server with test config
 
 You may want not passing the `-p` parameter will run on default DNS ports. For the tls features, there are also port options for those, see `trust-dns --help`
 
 ```shell
-./target/release/named -c ./tests/test-data/named_test_configs/example.toml -z ./tests/test-data/named_test_configs/ -p 24141
+./target/release/trust-dns -c ./tests/test-data/test_configs/example.toml -z ./tests/test-data/test_configs/ -p 24141
 ```
 
 - Query the just launched server with `dig`
@@ -297,10 +297,10 @@ Success for query name: www.example.com. type: A class: IN
 The Client has a few features which can be disabled for different reasons when embedding in other software.
 
 - `dnssec-openssl`
-  It is a default feature, so default-features will need to be set to false (this will disable all other default features in trust-dns). Until there are other crypto libraries supported, this will also disable DNSSec validation. The functions will still exist, but will always return errors on validation. The below example line will disable all default features and enable OpenSSL, remove `"openssl"` to remove the dependency on OpenSSL.
+  It is a default feature, so default-features will need to be set to false (this will disable all other default features in trust-dns). Until there are other crypto libraries supported, this will also disable DNSSEC validation. The functions will still exist, but will always return errors on validation. The below example line will disable all default features and enable OpenSSL, remove `"openssl"` to remove the dependency on OpenSSL.
 
 - `dnssec-ring`
-  Ring support can be used for RSA and ED25519 DNSSec validation.
+  Ring support can be used for RSA and ED25519 DNSSEC validation.
 
 - `dns-over-native-tls`
   Uses `native-tls` for DNS-over-TLS implementation, only supported in client and resolver, not server.

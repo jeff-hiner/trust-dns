@@ -8,20 +8,20 @@
 use std::{io, path::Path, time::Instant};
 
 use tracing::{debug, info};
-use trust_dns_client::op::Query;
-
-pub(crate) use trust_dns_resolver::lookup::Lookup;
 
 use crate::{
     authority::{
         Authority, LookupError, LookupObject, LookupOptions, MessageRequest, UpdateResult, ZoneType,
     },
-    client::{
-        op::ResponseCode,
+    proto::{
+        op::{Query, ResponseCode},
         rr::{LowerName, Name, Record, RecordType},
     },
     recursor::Recursor,
-    resolver::config::{NameServerConfig, NameServerConfigGroup, Protocol},
+    resolver::{
+        config::{NameServerConfig, NameServerConfigGroup, Protocol},
+        lookup::Lookup,
+    },
     server::RequestInfo,
     store::recursor::RecursiveConfig,
 };
@@ -56,7 +56,7 @@ impl RecursiveAuthority {
                 socket_addr,
                 protocol: Protocol::Tcp,
                 tls_dns_name: None,
-                trust_nx_responses: false,
+                trust_negative_responses: false,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None, // TODO: need to support bind addresses
@@ -66,7 +66,7 @@ impl RecursiveAuthority {
                 socket_addr,
                 protocol: Protocol::Udp,
                 tls_dns_name: None,
-                trust_nx_responses: false,
+                trust_negative_responses: false,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -74,7 +74,7 @@ impl RecursiveAuthority {
         }
 
         let recursor =
-            Recursor::new(roots).map_err(|e| format!("failed to initialize recursor: {}", e))?;
+            Recursor::new(roots).map_err(|e| format!("failed to initialize recursor: {e}"))?;
 
         Ok(Self {
             origin: origin.into(),

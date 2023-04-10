@@ -5,10 +5,10 @@ use std::str::FromStr;
 
 use rusqlite::*;
 
-use trust_dns_client::op::*;
-use trust_dns_client::rr::dnssec::*;
-use trust_dns_client::rr::rdata::*;
-use trust_dns_client::rr::*;
+use trust_dns_proto::op::*;
+use trust_dns_proto::rr::dnssec::*;
+use trust_dns_proto::rr::rdata::*;
+use trust_dns_proto::rr::*;
 
 use trust_dns_server::authority::LookupOptions;
 use trust_dns_server::authority::{Authority, ZoneType};
@@ -62,7 +62,7 @@ async fn test_search() {
     }
 }
 
-/// this is a litte more interesting b/c it requires a recursive lookup for the origin
+/// this is a little more interesting b/c it requires a recursive lookup for the origin
 #[tokio::test]
 async fn test_search_www() {
     let example = create_example();
@@ -793,7 +793,7 @@ async fn test_update() {
             .await
             .unwrap();
 
-        println!("after delete of specific record: {:?}", lookup);
+        println!("after delete of specific record: {lookup:?}");
         assert!(lookup.was_empty());
     }
 
@@ -905,7 +905,10 @@ async fn test_update() {
 
 #[cfg(feature = "dnssec")]
 #[tokio::test]
+#[allow(clippy::uninlined_format_args)]
 async fn test_zone_signing() {
+    use trust_dns_proto::rr::dnssec::rdata::DNSSECRData;
+
     let authority = create_secure_example();
 
     let results = authority

@@ -12,10 +12,9 @@ use std::{borrow::Borrow, collections::HashMap, future::Future, io};
 
 use cfg_if::cfg_if;
 use tracing::{debug, error, info, trace, warn};
-use trust_dns_proto::rr::Record;
 
 #[cfg(feature = "dnssec")]
-use crate::client::rr::{
+use crate::proto::rr::{
     dnssec::{Algorithm, SupportedAlgorithms},
     rdata::opt::{EdnsCode, EdnsOption},
 };
@@ -24,10 +23,8 @@ use crate::{
         AuthLookup, AuthorityObject, EmptyLookup, LookupError, LookupObject, LookupOptions,
         MessageResponse, MessageResponseBuilder, ZoneType,
     },
-    client::{
-        op::{Edns, Header, LowerQuery, MessageType, OpCode, ResponseCode},
-        rr::{LowerName, RecordType},
-    },
+    proto::op::{Edns, Header, LowerQuery, MessageType, OpCode, ResponseCode},
+    proto::rr::{LowerName, Record, RecordType},
     server::{Request, RequestHandler, RequestInfo, ResponseHandler, ResponseInfo},
 };
 
@@ -534,10 +531,10 @@ async fn send_authoritative_response(
         Err(LookupError::ResponseCode(ResponseCode::Refused)) => {
             response_header.set_response_code(ResponseCode::Refused);
             return LookupSections {
-                answers: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-                ns: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-                soa: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-                additionals: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
+                answers: Box::<AuthLookup>::default(),
+                ns: Box::<AuthLookup>::default(),
+                soa: Box::<AuthLookup>::default(),
+                additionals: Box::<AuthLookup>::default(),
             };
         }
         Err(e) => {
@@ -598,19 +595,19 @@ async fn send_authoritative_response(
             Some(additionals) => (answers, additionals),
             None => (
                 answers,
-                Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
+                Box::<AuthLookup>::default() as Box<dyn LookupObject>,
             ),
         },
         None => (
-            Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-            Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
+            Box::<AuthLookup>::default() as Box<dyn LookupObject>,
+            Box::<AuthLookup>::default() as Box<dyn LookupObject>,
         ),
     };
 
     LookupSections {
         answers,
-        ns: ns.unwrap_or_else(|| Box::new(AuthLookup::default()) as Box<dyn LookupObject>),
-        soa: soa.unwrap_or_else(|| Box::new(AuthLookup::default()) as Box<dyn LookupObject>),
+        ns: ns.unwrap_or_else(|| Box::<AuthLookup>::default()),
+        soa: soa.unwrap_or_else(|| Box::<AuthLookup>::default()),
         additionals,
     }
 }
@@ -650,9 +647,9 @@ async fn send_forwarded_response(
 
     LookupSections {
         answers,
-        ns: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-        soa: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
-        additionals: Box::new(AuthLookup::default()) as Box<dyn LookupObject>,
+        ns: Box::<AuthLookup>::default(),
+        soa: Box::<AuthLookup>::default(),
+        additionals: Box::<AuthLookup>::default(),
     }
 }
 

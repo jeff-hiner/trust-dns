@@ -138,13 +138,18 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
         request: R,
     ) -> Result<DnsResponse, ResolveError> {
         let mut client = self.connected_mut_client().await?;
+        let now = Instant::now();
         let response = client.send(request).first_answer().await;
+        let rtt = now.elapsed();
 
         match response {
             Ok(response) => {
+                // Record the measured latency.
+                self.stats.record_rtt(rtt);
+
                 // First evaluate if the message succeeded.
                 let response =
-                    ResolveError::from_response(response, self.config.trust_nx_responses)?;
+                    ResolveError::from_response(response, self.config.trust_negative_responses)?;
 
                 // TODO: consider making message::take_edns...
                 let remote_edns = response.extensions().clone();
@@ -152,8 +157,6 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
                 // take the remote edns options and store them
                 self.state.establish(remote_edns);
 
-                // record the success
-                self.stats.next_success();
                 Ok(response)
             }
             Err(error) => {
@@ -163,7 +166,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
                 self.state.fail(Instant::now());
 
                 // record the failure
-                self.stats.next_failure();
+                self.stats.record_connection_failure();
 
                 // These are connection failures, not lookup failures, that is handled in the resolver layer
                 Err(error)
@@ -171,9 +174,9 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
         }
     }
 
-    /// Specifies that thie NameServer will treat negative responses as permanent failures and will not retry
+    /// Specifies that this NameServer will treat negative responses as permanent failures and will not retry
     pub fn trust_nx_responses(&self) -> bool {
-        self.config.trust_nx_responses
+        self.config.trust_negative_responses
     }
 }
 
@@ -205,17 +208,6 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Ord fo
             return Ordering::Equal;
         }
 
-        // otherwise, run our evaluation to determine the next to be returned from the Heap
-        //   this will prefer established connections, we should try other connections after
-        //   some number to make sure that all are used. This is more important for when
-        //   latency is started to be used.
-        match self.state.cmp(&other.state) {
-            Ordering::Equal => (),
-            o => {
-                return o;
-            }
-        }
-
         self.stats.cmp(&other.stats)
     }
 }
@@ -244,7 +236,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Eq for
 pub(crate) fn mdns_nameserver<C, P>(
     options: ResolverOpts,
     conn_provider: P,
-    trust_nx_responses: bool,
+    trust_negative_responses: bool,
 ) -> NameServer<C, P>
 where
     C: DnsHandle<Error = ResolveError>,
@@ -254,7 +246,7 @@ where
         socket_addr: *MDNS_IPV4,
         protocol: Protocol::Mdns,
         tls_dns_name: None,
-        trust_nx_responses,
+        trust_negative_responses,
         #[cfg(feature = "dns-over-rustls")]
         tls_config: None,
         bind_addr: None,
@@ -286,7 +278,7 @@ mod tests {
             socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53),
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,
@@ -325,7 +317,7 @@ mod tests {
             socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 252)), 252),
             protocol: Protocol::Udp,
             tls_dns_name: None,
-            trust_nx_responses: false,
+            trust_negative_responses: false,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
             bind_addr: None,

@@ -3,11 +3,12 @@ name = "trust-dns"
 version = "0.22.0"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
+rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
 description = """
-Trust-DNS is a safe and secure DNS server with DNSEC support.
+Trust-DNS is a safe and secure DNS server with DNSSEC support.
  Eventually this could be a replacement for BIND9. The DNSSEC support allows
  for live signing of all records, in it does not currently support
  records signed offline. The server supports dynamic DNS with SIG0 authenticated
@@ -18,7 +19,7 @@ Trust-DNS is a safe and secure DNS server with DNSEC support.
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns-server"
-homepage = "http://www.trust-dns.org/index.html"
+homepage = "https://trust-dns.org/"
 repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The
@@ -70,23 +71,22 @@ tls = ["dns-over-openssl"]
 # WARNING: there is a bug in the mutual tls auth code at the moment see issue #100
 # mtls = ["trust-dns-client/mtls"]
 
-## DEPRECATED
-[[bin]]
-name = "named"
-path = "src/named.rs"
-
 [[bin]]
 name = "trust-dns"
-path = "src/named.rs"
+path = "src/trust-dns.rs"
 
 [dependencies]
-clap = { version = "3.0", default-features = false, features = ["std", "cargo"] }
+# clap features:
+# - suggestion for advanced help with error in cli
+# - derive for clap derive api
+# - help to generate --help
+clap = { version = "4.0", default-features = false, features = ["std", "cargo", "help", "derive", "suggestions"] }
 futures = { version = "0.3.5", default-features = false, features = ["std"] }
 rustls = { version = "0.20", optional = true }
 time = "0.3"
 tracing = "0.1.30"
 tracing-subscriber = { version = "0.3", features = ["std", "fmt", "env-filter"] }
-tokio = { version = "1.0", features = ["time"] }
+tokio = { version = "1.21", features = ["time", "rt"] }
 trust-dns-client = { version = "0.22.0", path = "../crates/client" }
 trust-dns-proto = { version = "0.22.0", path = "../crates/proto" }
 trust-dns-server = { version = "0.22.0", path = "../crates/server" }

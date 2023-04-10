@@ -111,7 +111,7 @@ use crate::serialize::binary::*;
 ///            11: If both bits are one, the "no key" value, there is no key
 ///                information and the RR stops after the algorithm octet.
 ///                By the use of this "no key" value, a signed KEY RR can
-///                authenticatably assert that, for example, a zone is not
+///                authentically assert that, for example, a zone is not
 ///                secured.  See section 3.4 below.
 ///
 ///    Bits 2 is reserved and must be zero.
@@ -578,8 +578,8 @@ pub enum Protocol {
     /// Reserved for use with email
     #[deprecated = "Deprecated by RFC3445"]
     Email,
-    /// Reserved for use with DNSSec (Trust-DNS only supports DNSKEY with DNSSec)
-    DNSSec,
+    /// Reserved for use with DNSSEC (Trust-DNS only supports DNSKEY with DNSSEC)
+    DNSSEC,
     /// Reserved to refer to the Oakley/IPSEC
     #[deprecated = "Deprecated by RFC3445"]
     IPSec,
@@ -593,7 +593,7 @@ pub enum Protocol {
 
 impl Default for Protocol {
     fn default() -> Self {
-        Self::DNSSec
+        Self::DNSSEC
     }
 }
 
@@ -603,7 +603,7 @@ impl From<u8> for Protocol {
             0 => Self::Reserved,
             1 => Self::TLS,
             2 => Self::Email,
-            3 => Self::DNSSec,
+            3 => Self::DNSSEC,
             4 => Self::IPSec,
             255 => Self::All,
             _ => Self::Other(field),
@@ -617,7 +617,7 @@ impl From<Protocol> for u8 {
             Protocol::Reserved => 0,
             Protocol::TLS => 1,
             Protocol::Email => 2,
-            Protocol::DNSSec => 3,
+            Protocol::DNSSEC => 3,
             Protocol::IPSec => 4,
             Protocol::All => 255,
             Protocol::Other(field) => field,
@@ -834,7 +834,7 @@ pub fn emit(encoder: &mut BinEncoder<'_>, rdata: &KEY) -> ProtoResult<()> {
 ///    [RFC 1033].
 ///
 ///    The flag field is represented as an unsigned integer or a sequence of
-///    mnemonics as follows separated by instances of the verticle bar ("|")
+///    mnemonics as follows separated by instances of the vertical bar ("|")
 ///    character:
 ///
 ///      BIT  Mnemonic  Explanation
@@ -862,7 +862,7 @@ pub fn emit(encoder: &mut BinEncoder<'_>, rdata: &KEY) -> ProtoResult<()> {
 ///    zero.
 ///
 ///    The protocol octet can be represented as either an unsigned integer
-///    or symbolicly.  The following initial symbols are defined:
+///    or symbolically.  The following initial symbols are defined:
 ///
 ///         000    NONE
 ///         001    TLS
@@ -922,7 +922,7 @@ mod tests {
         assert!(emit(&mut encoder, &rdata).is_ok());
         let bytes = encoder.into_bytes();
 
-        println!("bytes: {:?}", bytes);
+        println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
         let restrict = Restrict::new(bytes.len() as u16);

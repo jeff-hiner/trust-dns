@@ -279,9 +279,9 @@ impl fmt::Display for SvcParamKey {
             Self::Ipv4Hint => f.write_str("ipv4hint")?,
             Self::EchConfig => f.write_str("echconfig")?,
             Self::Ipv6Hint => f.write_str("ipv6hint")?,
-            Self::Key(val) => write!(f, "key{}", val)?,
+            Self::Key(val) => write!(f, "key{val}")?,
             Self::Key65535 => f.write_str("key65535")?,
-            Self::Unknown(val) => write!(f, "unknown{}", val)?,
+            Self::Unknown(val) => write!(f, "unknown{val}")?,
         }
 
         Ok(())
@@ -296,8 +296,7 @@ impl std::str::FromStr for SvcParamKey {
         fn parse_unknown_key(key: &str) -> Result<SvcParamKey, ProtoError> {
             let key_value = key.strip_prefix("key").ok_or_else(|| {
                 ProtoError::from(ProtoErrorKind::Msg(format!(
-                    "bad formatted key ({}), expected key1234",
-                    key
+                    "bad formatted key ({key}), expected key1234"
                 )))
             })?;
 
@@ -509,14 +508,14 @@ impl BinEncodable for SvcParamValue {
 impl fmt::Display for SvcParamValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Self::Mandatory(mandatory) => write!(f, "{}", mandatory)?,
-            Self::Alpn(alpn) => write!(f, "{}", alpn)?,
+            Self::Mandatory(mandatory) => write!(f, "{mandatory}")?,
+            Self::Alpn(alpn) => write!(f, "{alpn}")?,
             Self::NoDefaultAlpn => (),
-            Self::Port(port) => write!(f, "{}", port)?,
-            Self::Ipv4Hint(ip_hint) => write!(f, "{}", ip_hint)?,
-            Self::EchConfig(ech_config) => write!(f, "{}", ech_config)?,
-            Self::Ipv6Hint(ip_hint) => write!(f, "{}", ip_hint)?,
-            Self::Unknown(unknown) => write!(f, "{}", unknown)?,
+            Self::Port(port) => write!(f, "{port}")?,
+            Self::Ipv4Hint(ip_hint) => write!(f, "{ip_hint}")?,
+            Self::EchConfig(ech_config) => write!(f, "{ech_config}")?,
+            Self::Ipv6Hint(ip_hint) => write!(f, "{ip_hint}")?,
+            Self::Unknown(unknown) => write!(f, "{unknown}")?,
         }
 
         Ok(())
@@ -629,7 +628,7 @@ impl fmt::Display for Mandatory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         for key in self.0.iter() {
             // TODO: confirm in the RFC that trailing commas are ok
-            write!(f, "{},", key)?;
+            write!(f, "{key},")?;
         }
 
         Ok(())
@@ -784,7 +783,7 @@ impl fmt::Display for Alpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         for alpn in self.0.iter() {
             // TODO: confirm in the RFC that trailing commas are ok
-            write!(f, "{},", alpn)?;
+            write!(f, "{alpn},")?;
         }
 
         Ok(())
@@ -976,7 +975,7 @@ where
     ///   this SvcParamValue MUST NOT contain escape sequences.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         for ip in self.0.iter() {
-            write!(f, "{},", ip)?;
+            write!(f, "{ip},")?;
         }
 
         Ok(())
@@ -1018,7 +1017,10 @@ impl<'r> BinDecodable<'r> for Unknown {
 
 impl BinEncodable for Unknown {
     fn emit(&self, encoder: &mut BinEncoder<'_>) -> ProtoResult<()> {
-        encoder.emit_character_data(&self.0)?;
+        // draft-ietf-dnsop-svcb-https-11#appendix-A: The algorithm is the same as used by
+        // <character-string> in RFC 1035, although the output length in this
+        // document is not limited to 255 octets.
+        encoder.emit_character_data_unrestricted(&self.0)?;
 
         Ok(())
     }
@@ -1058,7 +1060,7 @@ pub fn read(decoder: &mut BinDecoder<'_>, rdata_length: Restrict<u16>) -> ProtoR
     let mut remainder_len = rdata_length
         .map(|len| len as usize)
         .checked_sub(decoder.index() - start_index)
-        .map_err(|len| format!("Bad length for RDATA of SVCB: {}", len))?
+        .map_err(|len| format!("Bad length for RDATA of SVCB: {len}"))?
         .unverified(); // valid len
     let mut svc_params: Vec<(SvcParamKey, SvcParamValue)> = Vec::new();
 
@@ -1083,7 +1085,7 @@ pub fn read(decoder: &mut BinDecoder<'_>, rdata_length: Restrict<u16>) -> ProtoR
         remainder_len = rdata_length
             .map(|len| len as usize)
             .checked_sub(decoder.index() - start_index)
-            .map_err(|len| format!("Bad length for RDATA of SVCB: {}", len))?
+            .map_err(|len| format!("Bad length for RDATA of SVCB: {len}"))?
             .unverified(); // valid len
     }
 
@@ -1135,7 +1137,7 @@ impl fmt::Display for SVCB {
         )?;
 
         for (key, param) in self.svc_params.iter() {
-            write!(f, " {key}={param}", key = key, param = param)?
+            write!(f, " {key}={param}")?
         }
 
         Ok(())
@@ -1182,9 +1184,6 @@ mod tests {
         let mut encoder: BinEncoder<'_> = BinEncoder::new(&mut bytes);
         emit(&mut encoder, &rdata).expect("failed to emit SVCB");
         let bytes = encoder.into_bytes();
-
-        println!("svcb: {}", rdata);
-        println!("bytes: {:?}", bytes);
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
         let read_rdata =
@@ -1249,5 +1248,21 @@ mod tests {
             0, 0, 7, 7, 0, 0, 0, 0, 0, 0, 0,
         ];
         assert!(crate::op::Message::from_vec(BUF).is_err());
+    }
+
+    #[test]
+    fn test_unrestricted_output_size() {
+        let svcb = SVCB::new(
+            8224,
+            Name::from_utf8(".").unwrap(),
+            vec![(
+                SvcParamKey::Unknown(8224),
+                SvcParamValue::Unknown(Unknown(vec![32; 257])),
+            )],
+        );
+
+        let mut buf = Vec::new();
+        let mut encoder = BinEncoder::new(&mut buf);
+        emit(&mut encoder, &svcb).unwrap();
     }
 }

@@ -6,8 +6,11 @@ use std::str::FromStr;
 
 use futures_executor::block_on;
 
-use trust_dns_client::op::{Header, Message, Query, ResponseCode};
-use trust_dns_client::rr::{Name, RData, Record, RecordType};
+use trust_dns_proto::{
+    op::{Header, Message, Query, ResponseCode},
+    rr::{Name, RData, Record, RecordType},
+    serialize::binary::BinDecodable,
+};
 use trust_dns_server::authority::{
     AuthLookup, Authority, LookupError, LookupOptions, MessageRequest,
 };
@@ -45,7 +48,7 @@ pub fn test_soa<A: Authority<Lookup = AuthLookup>>(authority: A) {
     match lookup
         .into_iter()
         .next()
-        .expect("SOA record not found in authity")
+        .expect("SOA record not found in authority")
         .data()
     {
         Some(RData::SOA(soa)) => {
@@ -67,7 +70,7 @@ pub fn test_ns<A: Authority<Lookup = AuthLookup>>(authority: A) {
     match lookup
         .into_iter()
         .next()
-        .expect("NS record not found in authity")
+        .expect("NS record not found in authority")
         .data()
     {
         Some(RData::NS(name)) => assert_eq!(Name::from_str("bbb.example.com.").unwrap(), *name),
@@ -452,8 +455,6 @@ pub fn test_aname_chain<A: Authority<Lookup = AuthLookup>>(authority: A) {
 }
 
 pub fn test_update_errors<A: Authority<Lookup = AuthLookup>>(mut authority: A) {
-    use trust_dns_client::serialize::binary::BinDecodable;
-
     let mut message = Message::default();
     message.add_query(Query::default());
     let bytes = message.to_vec().unwrap();
@@ -463,6 +464,7 @@ pub fn test_update_errors<A: Authority<Lookup = AuthLookup>>(mut authority: A) {
     assert!(block_on(authority.update(&update)).is_err());
 }
 
+#[allow(clippy::uninlined_format_args)]
 pub fn test_dots_in_name<A: Authority<Lookup = AuthLookup>>(authority: A) {
     let query = Query::query(
         Name::from_str("this.has.dots.example.com.").unwrap(),
@@ -482,7 +484,7 @@ pub fn test_dots_in_name<A: Authority<Lookup = AuthLookup>>(authority: A) {
         *lookup
             .into_iter()
             .next()
-            .expect("A record not found in authity")
+            .expect("A record not found in authority")
             .data()
             .and_then(RData::as_a)
             .expect("wrong rdata type returned"),
@@ -725,7 +727,7 @@ macro_rules! define_basic_test {
                 // Useful for getting debug logs
                 // env_logger::try_init().ok();
 
-                let authority = crate::$new("../../tests/test-data/named_test_configs/example.com.zone", module_path!(), stringify!($f));
+                let authority = crate::$new("../../tests/test-data/test_configs/example.com.zone", module_path!(), stringify!($f));
                 crate::authority_battery::basic::$f(authority);
             }
         )*

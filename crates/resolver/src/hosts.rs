@@ -189,13 +189,13 @@ mod tests {
 
     fn tests_dir() -> String {
         let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
-        format! {"{}/crates/resolver/tests", server_path}
+        format! {"{server_path}/crates/resolver/tests"}
     }
 
     #[test]
     fn test_read_hosts_conf() {
         let path = format!("{}/hosts", tests_dir());
-        let hosts = read_hosts_conf(&path).unwrap();
+        let hosts = read_hosts_conf(path).unwrap();
 
         let name = Name::from_str("localhost").unwrap();
         let rdatas = hosts

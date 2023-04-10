@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use tokio::runtime::Runtime;
 
-use trust_dns_client::rr::{Name, RData, RecordType};
+use trust_dns_proto::rr::{Name, RData, RecordType};
 use trust_dns_resolver::TokioHandle;
 use trust_dns_server::{
     authority::{Authority, LookupObject},
@@ -17,10 +17,8 @@ use trust_dns_server::{
 #[test]
 fn test_lookup() {
     let runtime = Runtime::new().expect("failed to create Tokio Runtime");
-    let forwarder = ForwardAuthority::new(TokioHandle::default());
-    let forwarder = runtime
-        .block_on(forwarder)
-        .expect("failed to create forwarder");
+    let forwarder =
+        ForwardAuthority::new(TokioHandle::default()).expect("failed to create forwarder");
 
     let lookup = runtime
         .block_on(forwarder.lookup(

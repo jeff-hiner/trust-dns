@@ -19,7 +19,7 @@ use tracing::{debug, warn};
 
 use crate::error::ProtoError;
 use crate::op::message::NoopMessageFinalizer;
-use crate::op::{MessageFinalizer, MessageVerifier};
+use crate::op::{Message, MessageFinalizer, MessageVerifier};
 use crate::udp::udp_stream::{NextRandomUdpSocket, UdpSocket};
 use crate::xfer::{DnsRequest, DnsRequestSender, DnsResponse, DnsResponseStream, SerialMessage};
 use crate::Time;
@@ -281,16 +281,15 @@ async fn send_serial_message<S: UdpSocket + Send>(
         let mut recv_buf = [0u8; 2048];
 
         let (len, src) = socket.recv_from(&mut recv_buf).await?;
-        let response = SerialMessage::new(recv_buf.iter().take(len).cloned().collect(), src);
+        let buffer: Vec<_> = recv_buf.iter().take(len).cloned().collect();
 
         // compare expected src to received packet
         let request_target = msg.addr();
 
-        if response.addr() != request_target {
+        if src != request_target {
             warn!(
                 "ignoring response from {} because it does not match name_server: {}.",
-                response.addr(),
-                request_target,
+                src, request_target,
             );
 
             // await an answer from the correct NameServer
@@ -299,14 +298,14 @@ async fn send_serial_message<S: UdpSocket + Send>(
 
         // TODO: match query strings from request and response?
 
-        match response.to_message() {
+        match Message::from_vec(&buffer) {
             Ok(message) => {
                 if msg_id == message.id() {
                     debug!("received message id: {}", message.id());
                     if let Some(mut verifier) = verifier {
-                        return verifier(response.bytes());
+                        return verifier(&buffer);
                     } else {
-                        return Ok(DnsResponse::from(message));
+                        return Ok(DnsResponse::new(message, buffer));
                     }
                 } else {
                     // on wrong id, attempted poison?

@@ -19,8 +19,8 @@ use trust_dns_proto::op::Edns;
 
 use crate::client::Signer;
 use crate::error::*;
-use crate::op::{update_message, Message, MessageType, OpCode, Query};
 use crate::proto::error::{ProtoError, ProtoErrorKind};
+use crate::proto::op::{update_message, Message, MessageType, OpCode, Query};
 use crate::proto::xfer::{
     BufDnsStreamHandle, DnsClientStream, DnsExchange, DnsExchangeBackground, DnsExchangeSend,
     DnsHandle, DnsMultiplexer, DnsRequest, DnsRequestOptions, DnsRequestSender, DnsResponse,
@@ -28,11 +28,6 @@ use crate::proto::xfer::{
 use crate::proto::TokioTime;
 use crate::rr::rdata::SOA;
 use crate::rr::{DNSClass, Name, RData, Record, RecordSet, RecordType};
-
-// TODO: this should be configurable
-// > An EDNS buffer size of 1232 bytes will avoid fragmentation on nearly all current networks.
-// https://dnsflagday.net/2020/
-pub(crate) const MAX_PAYLOAD_LEN: u16 = 1232;
 
 /// A DNS Client implemented over futures-rs.
 ///
@@ -217,7 +212,7 @@ pub trait ClientHandle: 'static + Clone + DnsHandle<Error = ProtoError> + Send {
     ///   3.7. A NOTIFY request has QDCOUNT>0, ANCOUNT>=0, AUCOUNT>=0,
     ///   ADCOUNT>=0.  If ANCOUNT>0, then the answer section represents an
     ///   unsecure hint at the new RRset for this <QNAME,QCLASS,QTYPE>.  A
-    ///   Secondary receiving such a hint is free to treat equivilence of this
+    ///   Secondary receiving such a hint is free to treat equivalence of this
     ///   answer section with its local data as a "no further work needs to be
     ///   done" indication.  If ANCOUNT=0, or ANCOUNT>0 and the answer section
     ///   differs from the Secondary's local data, then the Secondary should query its
@@ -271,7 +266,7 @@ pub trait ClientHandle: 'static + Clone + DnsHandle<Error = ProtoError> + Send {
             message
                 .extensions_mut()
                 .get_or_insert_with(Edns::new)
-                .set_max_payload(MAX_PAYLOAD_LEN)
+                .set_max_payload(update_message::MAX_PAYLOAD_LEN)
                 .set_version(0);
         }
 
@@ -889,9 +884,8 @@ mod tests {
             Ok({
                 let mut m = Message::new();
                 m.insert_answers(r);
-                m
-            }
-            .into())
+                DnsResponse::from_message(m).unwrap()
+            })
         });
         iter(stream)
     }
@@ -1076,5 +1070,56 @@ mod tests {
         assert_eq!(response.answers().len(), 1);
 
         assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn async_client() {
+        use crate::client::{AsyncClient, ClientHandle};
+        use crate::proto::iocompat::AsyncIoTokioAsStd;
+        use crate::rr::{DNSClass, Name, RData, RecordType};
+        use crate::tcp::TcpClientStream;
+        use std::net::Ipv4Addr;
+        use std::str::FromStr;
+        use tokio::net::TcpStream as TokioTcpStream;
+
+        // Since we used UDP in the previous examples, let's change things up a bit and use TCP here
+        let (stream, sender) =
+            TcpClientStream::<AsyncIoTokioAsStd<TokioTcpStream>>::new(([8, 8, 8, 8], 53).into());
+
+        // Create a new client, the bg is a background future which handles
+        //   the multiplexing of the DNS requests to the server.
+        //   the client is a handle to an unbounded queue for sending requests via the
+        //   background. The background must be scheduled to run before the client can
+        //   send any dns requests
+        let client = AsyncClient::new(stream, sender, None);
+
+        // await the connection to be established
+        let (mut client, bg) = client.await.expect("connection failed");
+
+        // make sure to run the background task
+        tokio::spawn(bg);
+
+        // Create a query future
+        let query = client.query(
+            Name::from_str("www.example.com.").unwrap(),
+            DNSClass::IN,
+            RecordType::A,
+        );
+
+        // wait for its response
+        let (message_returned, buffer) = query.await.unwrap().into_parts();
+
+        // validate it's what we expected
+        if let Some(RData::A(addr)) = message_returned.answers()[0].data() {
+            assert_eq!(*addr, Ipv4Addr::new(93, 184, 216, 34));
+        }
+
+        let message_parsed = Message::from_vec(&buffer)
+            .expect("buffer was parsed already by AsyncClient so we should be able to do it again");
+
+        // validate it's what we expected
+        if let Some(RData::A(addr)) = message_parsed.answers()[0].data() {
+            assert_eq!(*addr, Ipv4Addr::new(93, 184, 216, 34));
+        }
     }
 }

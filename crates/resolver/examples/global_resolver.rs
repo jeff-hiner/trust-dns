@@ -65,7 +65,7 @@ lazy_static! {
                 }
             };
 
-            let &(ref lock, ref cvar) = &*pair2;
+            let (lock, cvar) = &*pair2;
             let mut started = lock.lock().unwrap();
 
             let resolver = resolver.expect("failed to create trust-dns-resolver");
@@ -78,7 +78,7 @@ lazy_static! {
         });
 
         // Wait for the thread to start up.
-        let &(ref lock, ref cvar) = &*pair;
+        let (lock, cvar) = &*pair;
         let mut resolver = lock.lock().unwrap();
         while resolver.is_none() {
             resolver = cvar.wait(resolver).unwrap();
@@ -111,7 +111,7 @@ pub async fn resolve<N: IntoName + Display + TryParseIp + 'static>(
             // we transform the error into a standard IO error for convenience
             io::Error::new(
                 io::ErrorKind::AddrNotAvailable,
-                format!("dns resolution error for {}: {}", name, err),
+                format!("dns resolution error for {name}: {err}"),
             )
         })
         .map(move |lookup_ip| {
@@ -149,7 +149,7 @@ fn main() {
             .join()
             .expect("resolution thread failed")
             .expect("resolution failed");
-        println!("{} resolved to {:?}", name, result);
+        println!("{name} resolved to {result:?}");
     }
 }
 

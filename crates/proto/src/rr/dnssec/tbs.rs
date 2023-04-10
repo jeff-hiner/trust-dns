@@ -1,4 +1,4 @@
-//! hash functions for DNSSec operations
+//! hash functions for DNSSEC operations
 
 use super::rdata::{sig, DNSSECRData, SIG};
 use crate::error::*;
@@ -67,7 +67,7 @@ pub fn message_tbs<M: BinEncodable>(message: &M, pre_sig0: &SIG) -> ProtoResult<
 /// * `original_ttl` - Original TTL is the TTL as specified in the SOA zones RRSet associated record
 /// * `sig_expiration` - the epoch seconds of when this hashed signature will expire
 /// * `key_inception` - the epoch seconds of when this hashed signature will be valid
-/// * `signer_name` - label of the etity responsible for signing this hash
+/// * `signer_name` - label of the entity responsible for signing this hash
 /// * `records` - RRSet to hash
 ///
 /// # Returns
@@ -286,5 +286,5 @@ pub fn determine_name(name: &Name, num_labels: u8) -> Result<Name, ProtoError> {
     //                   checks and MUST NOT be used to authenticate this
     //                   RRset.
 
-    Err(format!("could not determine name from {}", name).into())
+    Err(format!("could not determine name from {name}").into())
 }

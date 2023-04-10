@@ -14,8 +14,6 @@ use tokio::{
 
 #[cfg(all(feature = "dnssec", feature = "sqlite"))]
 use trust_dns_client::client::Signer;
-#[cfg(feature = "dnssec")]
-use trust_dns_client::rr::{dnssec::SigSigner, Record};
 use trust_dns_client::{
     client::{AsyncClient, ClientHandle},
     error::ClientErrorKind,
@@ -27,6 +25,8 @@ use trust_dns_client::{
     tcp::TcpClientStream,
     udp::UdpClientStream,
 };
+#[cfg(feature = "dnssec")]
+use trust_dns_proto::rr::{dnssec::SigSigner, Record};
 #[cfg(feature = "dnssec")]
 use trust_dns_proto::xfer::{DnsExchangeBackground, DnsMultiplexer};
 #[cfg(all(feature = "dnssec", feature = "sqlite"))]
@@ -175,7 +175,7 @@ fn test_query(client: &mut AsyncClient) -> impl Future<Output = ()> {
     client
         .query(name.clone(), DNSClass::IN, RecordType::A)
         .map_ok(move |response| {
-            println!("response records: {:?}", response);
+            println!("response records: {response:?}");
             assert!(response
                 .queries()
                 .first()
@@ -227,7 +227,7 @@ fn test_query_edns(client: &mut AsyncClient) -> impl Future<Output = ()> {
         .send(msg)
         .first_answer()
         .map_ok(move |response| {
-            println!("response records: {:?}", response);
+            println!("response records: {response:?}");
             assert!(response
                 .queries()
                 .first()
@@ -297,8 +297,8 @@ async fn create_sig0_ready_client() -> (
     Name,
 ) {
     use openssl::rsa::Rsa;
-    use trust_dns_client::rr::dnssec::{Algorithm, KeyPair};
-    use trust_dns_client::rr::rdata::DNSSECRData;
+    use trust_dns_proto::rr::dnssec::rdata::DNSSECRData;
+    use trust_dns_proto::rr::dnssec::{Algorithm, KeyPair};
     use trust_dns_server::store::sqlite::SqliteAuthority;
 
     let authority = create_example();
@@ -940,7 +940,7 @@ fn test_timeout_query(mut client: AsyncClient, io_loop: Runtime) {
         .block_on(client.query(name.clone(), DNSClass::IN, RecordType::A))
         .unwrap_err();
 
-    println!("got error: {:?}", err);
+    println!("got error: {err:?}");
     if let ClientErrorKind::Timeout = err.kind() {
     } else {
         panic!("expected timeout error");
@@ -951,7 +951,7 @@ fn test_timeout_query(mut client: AsyncClient, io_loop: Runtime) {
         .unwrap_err();
 
     // test that we don't have any thing funky with registering new timeouts, etc...
-    //   it would be cool if we could maintain a different error here, but shutdown is problably ok.
+    //   it would be cool if we could maintain a different error here, but shutdown is probably ok.
     //
     // match err.kind() {
     //     &ClientErrorKind::Timeout => (),

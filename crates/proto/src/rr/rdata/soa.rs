@@ -66,7 +66,7 @@ use crate::serialize::binary::*;
 /// bound on the TTL field for all RRs in a zone.  Note that this use of
 /// MINIMUM should occur when the RRs are copied into the response and not
 /// when the zone is loaded from a Zone File or via a zone transfer.  The
-/// reason for this provison is to allow future dynamic update facilities to
+/// reason for this provision is to allow future dynamic update facilities to
 /// change the SOA RR with known semantics.
 /// ```
 #[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
@@ -353,7 +353,7 @@ mod tests {
         assert!(emit(&mut encoder, &rdata).is_ok());
         let bytes = encoder.into_bytes();
 
-        println!("bytes: {:?}", bytes);
+        println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
         let read_rdata = read(&mut decoder).expect("Decoding error");

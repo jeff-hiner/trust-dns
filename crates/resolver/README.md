@@ -11,7 +11,7 @@ This library contains implementations for IPv4 (A) and IPv6 (AAAA) resolution, m
 - NameServer pools with performance based priority usage
 - Caching of query results
 - NxDomain/NoData caching (negative caching)
-- DNSSec validation
+- DNSSEC validation
 - Generic Record Type Lookup
 - CNAME chain resolution
 - _experimental_ mDNS support (enable with `mdns` feature)
@@ -69,7 +69,7 @@ let mut resolver = Resolver::new(ResolverConfig::cloudflare_tls(), ResolverOpts:
 /// see example above...
 ```
 
-## DNSSec status
+## DNSSEC status
 
 Currently the root key is hardcoded into the system. This gives validation of
 DNSKEY and DS records back to the root. NSEC is implemented, but not NSEC3.
@@ -98,7 +98,7 @@ Success for query name: www.example.com. type: A class: IN
 
 ## Minimum Rust Version
 
-The current minimum rustc version for this project is `1.59`
+The current minimum rustc version for this project is `1.60`
 
 ## Versioning
 

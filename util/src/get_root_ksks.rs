@@ -27,8 +27,8 @@ use std::path::PathBuf;
 
 use clap::{command, ArgMatches};
 
-use trust_dns_client::rr::dnssec::Algorithm;
 use trust_dns_proto::rr::dnssec::rdata::DNSSECRData;
+use trust_dns_proto::rr::dnssec::Algorithm;
 use trust_dns_proto::rr::record_data::RData;
 use trust_dns_proto::rr::record_type::RecordType;
 use trust_dns_resolver::Resolver;
@@ -59,7 +59,7 @@ pub fn main() {
 
                 let key_tag = dnskey.calculate_key_tag().expect("key_tag failed");
 
-                println!("found dnskey tag: {}", key_tag);
+                println!("found dnskey tag: {key_tag}");
                 let extension = match dnskey.algorithm() {
                     Algorithm::RSASHA1
                     | Algorithm::RSASHA1NSEC3SHA1
@@ -69,12 +69,12 @@ pub fn main() {
                         String::from("ecdsa")
                     }
                     Algorithm::ED25519 => String::from("ed25519"),
-                    Algorithm::Unknown(v) => format!("unknown_{}", v),
+                    Algorithm::Unknown(v) => format!("unknown_{v}"),
                     alg => panic!("unknown Algorithm {:?}", alg),
                 };
 
                 let mut path = PathBuf::from("/tmp");
-                path.push(format!("{}", key_tag));
+                path.push(format!("{key_tag}"));
                 path.set_extension(extension);
 
                 let mut file = OpenOptions::new();

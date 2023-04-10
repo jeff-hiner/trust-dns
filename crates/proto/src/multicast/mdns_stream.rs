@@ -197,7 +197,7 @@ impl MdnsStream {
         if !ip_addr.is_multicast() {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("expected multicast address for binding: {}", ip_addr),
+                format!("expected multicast address for binding: {ip_addr}"),
             ));
         }
 
@@ -233,7 +233,7 @@ impl MdnsStream {
         socket.set_reuse_port(true)?;
         Self::bind_multicast(&socket, multicast_addr)?;
 
-        debug!("joined {}", multicast_addr);
+        debug!("joined {multicast_addr}");
         Ok(Some(std::net::UdpSocket::from(socket)))
     }
 
@@ -322,7 +322,7 @@ struct NextRandomUdpSocket {
 impl NextRandomUdpSocket {
     fn prepare_sender(&self, socket: std::net::UdpSocket) -> io::Result<std::net::UdpSocket> {
         let addr = socket.local_addr()?;
-        debug!("preparing sender on: {}", addr);
+        debug!("preparing sender on: {addr}");
 
         let socket = Socket::from(socket);
 
@@ -357,7 +357,7 @@ impl NextRandomUdpSocket {
 }
 
 impl Future for NextRandomUdpSocket {
-    // TODO: clean this up, the RandomUdpSocket shouldnt' care about the query type
+    // TODO: clean this up, the RandomUdpSocket shouldn't care about the query type
     type Output = io::Result<Option<std::net::UdpSocket>>;
 
     /// polls until there is an available next random UDP port.
@@ -371,7 +371,7 @@ impl Future for NextRandomUdpSocket {
         } else if self.mdns_query_type.bind_on_5353() {
             let addr = SocketAddr::new(self.bind_address, MDNS_PORT);
             debug!("binding sending stream to {}", addr);
-            let socket = std::net::UdpSocket::bind(&addr)?;
+            let socket = std::net::UdpSocket::bind(addr)?;
             let socket = self.prepare_sender(socket)?;
 
             Poll::Ready(Ok(Some(socket)))
@@ -400,7 +400,7 @@ impl Future for NextRandomUdpSocket {
                 let addr = SocketAddr::new(self.bind_address, port);
                 debug!("binding sending stream to {}", addr);
 
-                match std::net::UdpSocket::bind(&addr) {
+                match std::net::UdpSocket::bind(addr) {
                     Ok(socket) => {
                         let socket = self.prepare_sender(socket)?;
                         return Poll::Ready(Ok(Some(socket)));
@@ -454,7 +454,7 @@ pub(crate) mod tests {
         let result = io_loop.block_on(stream);
 
         if let Err(error) = result {
-            println!("Random address error: {:#?}", error);
+            println!("Random address error: {error:#?}");
             panic!("failed to get next random address");
         }
     }
@@ -597,7 +597,7 @@ pub(crate) mod tests {
         }
 
         client_done.store(true, std::sync::atomic::Ordering::Relaxed);
-        println!("successes: {}", successes);
+        println!("successes: {successes}");
         assert!(successes >= 1);
         server_handle.join().expect("server thread failed");
     }

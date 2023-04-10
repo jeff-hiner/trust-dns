@@ -8,7 +8,7 @@
 //! allows a DNS domain name holder to specify one or more Certification
 //! Authorities (CAs) authorized to issue certificates for that domain.
 //!
-//! [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844)
+//! [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659)
 //!
 //! ```text
 //! The Certification Authority Authorization (CAA) DNS Resource Record
@@ -34,7 +34,7 @@ use url::Url;
 
 /// The CAA RR Type
 ///
-/// [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844#section-3)
+/// [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659)
 ///
 /// ```text
 /// 3.  The CAA RR Type
@@ -239,7 +239,7 @@ pub enum Property {
     ///    Certification Practices or Certificate Policy, or that a
     ///    Certificate Evaluator may use to report observation of a possible
     ///    policy violation. The Incident Object Description Exchange Format
-    ///    (IODEF) format is used [RFC5070](https://tools.ietf.org/html/rfc5070).
+    ///    (IODEF) format is used [RFC7970](https://www.rfc-editor.org/rfc/rfc7970).
     Iodef,
     /// Unknown format to Trust-DNS
     Unknown(String),
@@ -279,8 +279,8 @@ impl Property {
 
 impl From<String> for Property {
     fn from(tag: String) -> Self {
-        // RFC6488 section 5.1 states that "Matching of tag values is case
-        // insensitive."
+        // [RFC 8659 section 4.1-11](https://www.rfc-editor.org/rfc/rfc8659#section-4.1-11)
+        // states that "Matching of tag values is case insensitive."
         let lower = tag.to_ascii_lowercase();
         match &lower as &str {
             "issue" => return Self::Issue,
@@ -400,7 +400,7 @@ enum ParseNameKeyPairState {
 
 /// Reads the issuer field according to the spec
 ///
-/// [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844#section-5.2)
+/// [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659)
 ///
 /// ```text
 /// 5.2.  CAA issue Property
@@ -469,8 +469,7 @@ enum ParseNameKeyPairState {
 ///
 /// Updated parsing rules:
 ///
-/// [RFC 6844bis, CAA Resource Record, May 2018](https://tools.ietf.org/html/draft-ietf-lamps-rfc6844bis-00)
-/// [RFC 6844, CAA Record Extensions, May 2018](https://tools.ietf.org/html/draft-ietf-acme-caa-04)
+/// [RFC8659] Canonical presentation form and ABNF](https://www.rfc-editor.org/rfc/rfc8659#name-canonical-presentation-form)
 ///
 /// This explicitly allows `-` in key names, diverging from the original RFC. To support this, key names will
 /// allow `-` as non-starting characters. Additionally, this significantly relaxes the characters allowed in the value
@@ -502,7 +501,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
                 match char::from(*ch) {
                     // gobble ';', ' ', and tab
                     ';' | ' ' | '\u{0009}' => state = ParseNameKeyPairState::BeforeKey(key_values),
-                    ch if ch.is_alphanumeric() && ch != '=' => {
+                    ch if ch.is_ascii_alphanumeric() && ch != '=' => {
                         // We found the beginning of a new Key
                         let mut key = String::new();
                         key.push(ch);
@@ -513,7 +512,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
                             key_values,
                         }
                     }
-                    ch => return Err(format!("bad character in CAA issuer key: {}", ch).into()),
+                    ch => return Err(format!("bad character in CAA issuer key: {ch}").into()),
                 }
             }
             ParseNameKeyPairState::Key {
@@ -532,7 +531,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
                         }
                     }
                     // push onto the existing key
-                    ch if (ch.is_alphanumeric() || (!first_char && ch == '-'))
+                    ch if (ch.is_ascii_alphanumeric() || (!first_char && ch == '-'))
                         && ch != '='
                         && ch != ';' =>
                     {
@@ -543,7 +542,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
                             key_values,
                         }
                     }
-                    ch => return Err(format!("bad character in CAA issuer key: {}", ch).into()),
+                    ch => return Err(format!("bad character in CAA issuer key: {ch}").into()),
                 }
             }
             ParseNameKeyPairState::Value {
@@ -567,7 +566,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
                             key_values,
                         }
                     }
-                    ch => return Err(format!("bad character in CAA issuer value: '{}'", ch).into()),
+                    ch => return Err(format!("bad character in CAA issuer value: '{ch}'").into()),
                 }
             }
         }
@@ -586,7 +585,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
             key_values
         }
         ParseNameKeyPairState::Key { key, .. } => {
-            return Err(format!("key missing value: {}", key).into());
+            return Err(format!("key missing value: {key}").into());
         }
     };
 
@@ -595,7 +594,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
 
 /// Incident Object Description Exchange Format
 ///
-/// [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844#section-5.4)
+/// [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659#section-4.4)
 ///
 /// ```text
 /// 5.4.  CAA iodef Property
@@ -605,7 +604,7 @@ pub fn read_issuer(bytes: &[u8]) -> ProtoResult<(Option<Name>, Vec<KeyValue>)> {
 ///    that violate the security policy of the issuer or the domain name
 ///    holder.
 ///
-///    The Incident Object Description Exchange Format (IODEF) [RFC5070] is
+///    The Incident Object Description Exchange Format (IODEF) [RFC7970](https://www.rfc-editor.org/info/rfc7970) is
 ///    used to present the incident report in machine-readable form.
 ///
 ///    The iodef property takes a URL as its parameter.  The URL scheme type
@@ -628,7 +627,7 @@ pub fn read_iodef(url: &[u8]) -> ProtoResult<Url> {
 
 /// Issuer key and value pairs.
 ///
-/// See [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844#section-5.2)
+/// [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659#section-4.2)
 /// for more explanation.
 #[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -659,7 +658,7 @@ impl KeyValue {
 
 /// Read the binary CAA format
 ///
-/// [RFC 6844, DNS Certification Authority Authorization, January 2013](https://tools.ietf.org/html/rfc6844#section-5.1)
+/// [RFC 8659, DNS Certification Authority Authorization, November 2019](https://www.rfc-editor.org/rfc/rfc8659#section-4.1)
 ///
 /// ```text
 /// 5.1.  Syntax
@@ -785,7 +784,7 @@ fn emit_tag(buf: &mut [u8], tag: &Property) -> ProtoResult<u8> {
 
     let len = property.len();
     if len > ::std::u8::MAX as usize {
-        return Err(format!("CAA property too long: {}", len).into());
+        return Err(format!("CAA property too long: {len}").into());
     }
     if buf.len() < len {
         return Err(format!(
@@ -838,26 +837,24 @@ impl fmt::Display for Property {
 }
 
 impl fmt::Display for Value {
-    // https://datatracker.ietf.org/doc/html/rfc6844#section-5.1.1
+    // https://www.rfc-editor.org/rfc/rfc8659#section-4.1.1
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str("\"")?;
 
         match self {
             Value::Issuer(name, values) => {
-                match name {
-                    Some(name) => write!(f, "{}", name)?,
-                    None => write!(f, ";")?,
+                if let Some(name) = name {
+                    write!(f, "{name}")?;
                 }
-
-                if let Some(value) = values.first() {
-                    write!(f, " {}", value)?;
-                    for value in &values[1..] {
-                        write!(f, "; {}", value)?;
-                    }
+                for value in values.iter() {
+                    write!(f, "; {value}")?;
                 }
             }
-            Value::Url(url) => write!(f, "{}", url)?,
-            Value::Unknown(v) => write!(f, "{:?}", v)?,
+            Value::Url(url) => write!(f, "{url}")?,
+            Value::Unknown(v) => match str::from_utf8(v) {
+                Ok(text) => write!(f, "{text}")?,
+                Err(_) => return Err(fmt::Error),
+            },
         }
 
         f.write_str("\"")
@@ -878,7 +875,7 @@ impl fmt::Display for KeyValue {
 // FIXME: this needs to be verified to be correct, add tests...
 impl fmt::Display for CAA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let critical = if self.issuer_critical { "1" } else { "0" };
+        let critical = if self.issuer_critical { "128" } else { "0" };
 
         write!(
             f,
@@ -1024,7 +1021,7 @@ mod tests {
         emit(&mut encoder, &rdata).expect("failed to emit caa");
         let bytes = encoder.into_bytes();
 
-        println!("bytes: {:?}", bytes);
+        println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
         let read_rdata =
@@ -1118,9 +1115,9 @@ mod tests {
     }
 
     #[test]
-    fn test_tostring() {
+    fn test_to_string() {
         let deny = CAA::new_issue(false, None, vec![]);
-        assert_eq!(deny.to_string(), "0 issue \";\"");
+        assert_eq!(deny.to_string(), "0 issue \"\"");
 
         let empty_options = CAA::new_issue(
             false,
@@ -1134,7 +1131,7 @@ mod tests {
             Some(Name::parse("example.com", None).unwrap()),
             vec![KeyValue::new("one", "1")],
         );
-        assert_eq!(one_option.to_string(), "0 issue \"example.com one=1\"");
+        assert_eq!(one_option.to_string(), "0 issue \"example.com; one=1\"");
 
         let two_options = CAA::new_issue(
             false,
@@ -1143,7 +1140,74 @@ mod tests {
         );
         assert_eq!(
             two_options.to_string(),
-            "0 issue \"example.com one=1; two=2\""
+            "0 issue \"example.com; one=1; two=2\""
         );
+
+        let flag_set = CAA::new_issue(
+            true,
+            Some(Name::parse("example.com", None).unwrap()),
+            vec![KeyValue::new("one", "1"), KeyValue::new("two", "2")],
+        );
+        assert_eq!(
+            flag_set.to_string(),
+            "128 issue \"example.com; one=1; two=2\""
+        );
+
+        let empty_domain = CAA::new_issue(
+            false,
+            None,
+            vec![KeyValue::new("one", "1"), KeyValue::new("two", "2")],
+        );
+        assert_eq!(empty_domain.to_string(), "0 issue \"; one=1; two=2\"");
+
+        // Examples from RFC 6844, with added quotes
+        assert_eq!(
+            CAA::new_issue(
+                false,
+                Some(Name::parse("ca.example.net", None).unwrap()),
+                vec![KeyValue::new("account", "230123")]
+            )
+            .to_string(),
+            "0 issue \"ca.example.net; account=230123\""
+        );
+        assert_eq!(
+            CAA::new_issue(
+                false,
+                Some(Name::parse("ca.example.net", None).unwrap()),
+                vec![KeyValue::new("policy", "ev")]
+            )
+            .to_string(),
+            "0 issue \"ca.example.net; policy=ev\""
+        );
+        assert_eq!(
+            CAA::new_iodef(false, Url::parse("mailto:security@example.com").unwrap()).to_string(),
+            "0 iodef \"mailto:security@example.com\""
+        );
+        assert_eq!(
+            CAA::new_iodef(false, Url::parse("http://iodef.example.com/").unwrap()).to_string(),
+            "0 iodef \"http://iodef.example.com/\""
+        );
+        let unknown = CAA {
+            issuer_critical: true,
+            tag: Property::from("tbs".to_string()),
+            value: Value::Unknown("Unknown".as_bytes().to_vec()),
+        };
+        assert_eq!(unknown.to_string(), "128 tbs \"Unknown\"");
+    }
+
+    #[test]
+    fn test_unicode_kv() {
+        const MESSAGE: &[u8] = &[
+            32, 5, 105, 115, 115, 117, 101, 103, 103, 103, 102, 71, 46, 110, 110, 115, 115, 117,
+            48, 110, 45, 59, 32, 32, 255, 61, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        ];
+
+        let mut decoder = BinDecoder::new(MESSAGE);
+        let err = read(&mut decoder, Restrict::new(MESSAGE.len() as u16)).unwrap_err();
+        match err.kind() {
+            ProtoErrorKind::Msg(msg) => assert_eq!(msg, "bad character in CAA issuer key: ÿ"),
+            _ => panic!("unexpected error: {:?}", err),
+        }
     }
 }

@@ -20,12 +20,12 @@ use time::Duration;
 use trust_dns_client::client::Client;
 use trust_dns_client::client::{ClientConnection, SyncClient};
 #[cfg(not(feature = "none"))]
-use trust_dns_client::op::ResponseCode;
-use trust_dns_client::rr::dnssec::{Algorithm, KeyPair, SigSigner};
-use trust_dns_client::rr::rdata::key::{KeyUsage, KEY};
-use trust_dns_client::rr::Name;
+use trust_dns_client::proto::op::ResponseCode;
+use trust_dns_client::proto::rr::dnssec::rdata::key::{KeyUsage, KEY};
+use trust_dns_client::proto::rr::dnssec::{Algorithm, KeyPair, SigSigner};
+use trust_dns_client::proto::rr::Name;
 #[cfg(not(feature = "none"))]
-use trust_dns_client::rr::{DNSClass, RData, Record, RecordType};
+use trust_dns_client::proto::rr::{DNSClass, RData, Record, RecordType};
 #[cfg(not(feature = "none"))]
 use trust_dns_client::udp::UdpClientConnection;
 #[cfg(not(feature = "none"))]
@@ -63,10 +63,9 @@ where
 {
     let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
     let pem_path = format!(
-        "{}/tests/compatibility-tests/tests/conf/Kupdate.example.com.+008+56935.pem",
-        server_path
+        "{server_path}/tests/compatibility-tests/tests/conf/Kupdate.example.com.+008+56935.pem"
     );
-    println!("loading pem from: {}", pem_path);
+    println!("loading pem from: {pem_path}");
     let mut pem = File::open(pem_path).expect("could not find pem file");
 
     let mut pem_buf = Vec::<u8>::new();

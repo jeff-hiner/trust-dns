@@ -3,6 +3,7 @@ name = "async-std-resolver"
 version = "0.22.0"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
+rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
@@ -12,7 +13,7 @@ Trust-DNS is a safe and secure DNS library, for async-std. This Resolver library
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/async-std-resolver"
-homepage = "http://www.trust-dns.org/index.html"
+homepage = "https://trust-dns.org/"
 repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The

@@ -20,8 +20,8 @@ use cfg_if::cfg_if;
 use serde::{self, Deserialize};
 use toml;
 
-use crate::client::rr::Name;
 use crate::proto::error::ProtoResult;
+use crate::proto::rr::Name;
 
 use crate::authority::ZoneType;
 use crate::error::{ConfigError, ConfigResult};
@@ -104,7 +104,7 @@ impl Config {
         self.quic_listen_port.unwrap_or(DEFAULT_QUIC_PORT)
     }
 
-    /// default timeout for all TCP connections before forceably shutdown
+    /// default timeout for all TCP connections before forcibly shutdown
     pub fn get_tcp_request_timeout(&self) -> Duration {
         Duration::from_secs(
             self.tcp_request_timeout
@@ -186,7 +186,7 @@ impl ZoneConfig {
     /// * `file` - relative to Config base path, to the zone file
     /// * `allow_update` - enable dynamic updates
     /// * `allow_axfr` - enable AXFR transfers
-    /// * `enable_dnssec` - enable signing of the zone for DNSSec
+    /// * `enable_dnssec` - enable signing of the zone for DNSSEC
     /// * `keys` - list of private and public keys used to sign a zone
     pub fn new(
         zone: String,

@@ -10,15 +10,13 @@
 use cfg_if::cfg_if;
 
 #[cfg(feature = "dnssec")]
-use crate::client::{
-    proto::rr::dnssec::rdata::key::KEY,
-    rr::dnssec::{DnsSecResult, SigSigner, SupportedAlgorithms},
-    rr::Name,
+use crate::proto::rr::{
+    dnssec::{rdata::key::KEY, DnsSecResult, SigSigner, SupportedAlgorithms},
+    Name,
 };
 use crate::{
     authority::{LookupError, MessageRequest, UpdateResult, ZoneType},
-    client::rr::{LowerName, RecordSet, RecordType},
-    proto::rr::RrsetRecords,
+    proto::rr::{LowerName, RecordSet, RecordType, RrsetRecords},
     server::RequestInfo,
 };
 
@@ -142,7 +140,7 @@ pub trait Authority: Send + Sync {
     ///
     /// # Return value
     ///
-    /// Returns a vectory containing the results of the query, it will be empty if not found. If
+    /// Returns a vector containing the results of the query, it will be empty if not found. If
     ///  `is_secure` is true, in the case of no records found then NSEC records will be returned.
     async fn search(
         &self,

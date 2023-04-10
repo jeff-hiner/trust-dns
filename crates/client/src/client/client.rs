@@ -18,21 +18,20 @@ use std::sync::Arc;
 
 use futures_util::stream::{Stream, StreamExt};
 use tokio::runtime::{self, Runtime};
-use trust_dns_proto::xfer::DnsRequest;
 
 use crate::client::async_client::ClientStreamXfr;
 use crate::client::{AsyncClient, ClientConnection, ClientHandle, Signer};
 use crate::error::*;
 use crate::proto::{
     error::ProtoError,
-    xfer::{DnsExchangeSend, DnsHandle, DnsResponse},
+    xfer::{DnsExchangeSend, DnsHandle, DnsRequest, DnsResponse},
 };
 use crate::rr::rdata::SOA;
 use crate::rr::{DNSClass, Name, Record, RecordSet, RecordType};
 #[cfg(feature = "dnssec")]
-use {
-    crate::client::AsyncDnssecClient,
-    crate::rr::dnssec::{tsig::TSigner, SigSigner, TrustAnchor},
+use crate::{
+    client::AsyncDnssecClient,
+    proto::rr::dnssec::{tsig::TSigner, SigSigner, TrustAnchor},
 };
 
 use super::ClientStreamingResponse;
@@ -62,7 +61,7 @@ pub(crate) type NewFutureObj<H> = Pin<
 /// There was a strong attempt to make it backwards compatible, but making it a drop in replacement
 /// for the old Client was not possible. This trait has two implementations, the `SyncClient` which
 /// is a standard DNS Client, and the `SyncDnssecClient` which is a wrapper on `DnssecDnsHandle`
-/// providing DNSSec validation.
+/// providing DNSSEC validation.
 ///
 /// *note* When upgrading from previous usage, both `SyncClient` and `SyncDnssecClient` have an
 /// signer which can be optionally associated to the Client. This replaces the previous per-function
@@ -107,7 +106,7 @@ pub trait Client {
         runtime.block_on(ClientStreamingResponse(client.send(msg)).collect::<Vec<_>>())
     }
 
-    /// A *classic* DNS query, i.e. does not perform any DNSSec operations
+    /// A *classic* DNS query, i.e. does not perform any DNSSEC operations
     ///
     /// *Note* As of now, this will not recurse on PTR record responses, that is up to
     ///        the caller.
@@ -524,7 +523,7 @@ where
     }
 }
 
-/// A DNS client which will validate DNSSec records upon receipt
+/// A DNS client which will validate DNSSEC records upon receipt
 #[cfg(feature = "dnssec")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
 pub struct SyncDnssecClient<CC: ClientConnection> {

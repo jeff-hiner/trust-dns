@@ -411,7 +411,7 @@ pub struct NameServerConfig {
     ///
     /// Defaults to false.
     #[cfg_attr(feature = "serde-config", serde(default))]
-    pub trust_nx_responses: bool,
+    pub trust_negative_responses: bool,
     #[cfg(feature = "dns-over-rustls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-rustls")))]
     #[cfg_attr(feature = "serde-config", serde(skip))]
@@ -427,7 +427,7 @@ impl NameServerConfig {
         Self {
             socket_addr,
             protocol,
-            trust_nx_responses: true,
+            trust_negative_responses: true,
             tls_dns_name: None,
             #[cfg(feature = "dns-over-rustls")]
             tls_config: None,
@@ -441,7 +441,7 @@ impl fmt::Display for NameServerConfig {
         write!(f, "{}:", self.protocol)?;
 
         if let Some(ref tls_dns_name) = self.tls_dns_name {
-            write!(f, "{}@", tls_dns_name)?;
+            write!(f, "{tls_dns_name}@")?;
         }
 
         write!(f, "{}", self.socket_addr)
@@ -504,7 +504,7 @@ impl NameServerConfigGroup {
     /// Configure a NameServer address and port
     ///
     /// This will create UDP and TCP connections, using the same port.
-    pub fn from_ips_clear(ips: &[IpAddr], port: u16, trust_nx_responses: bool) -> Self {
+    pub fn from_ips_clear(ips: &[IpAddr], port: u16, trust_negative_responses: bool) -> Self {
         let mut name_servers = Self::with_capacity(ips.len());
 
         for ip in ips {
@@ -512,7 +512,7 @@ impl NameServerConfigGroup {
                 socket_addr: SocketAddr::new(*ip, port),
                 protocol: Protocol::Udp,
                 tls_dns_name: None,
-                trust_nx_responses,
+                trust_negative_responses,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -521,7 +521,7 @@ impl NameServerConfigGroup {
                 socket_addr: SocketAddr::new(*ip, port),
                 protocol: Protocol::Tcp,
                 tls_dns_name: None,
-                trust_nx_responses,
+                trust_negative_responses,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -540,7 +540,7 @@ impl NameServerConfigGroup {
         port: u16,
         tls_dns_name: String,
         protocol: Protocol,
-        trust_nx_responses: bool,
+        trust_negative_responses: bool,
     ) -> Self {
         assert!(protocol.is_encrypted());
 
@@ -551,7 +551,7 @@ impl NameServerConfigGroup {
                 socket_addr: SocketAddr::new(*ip, port),
                 protocol,
                 tls_dns_name: Some(tls_dns_name.clone()),
-                trust_nx_responses,
+                trust_negative_responses,
                 #[cfg(feature = "dns-over-rustls")]
                 tls_config: None,
                 bind_addr: None,
@@ -572,9 +572,15 @@ impl NameServerConfigGroup {
         ips: &[IpAddr],
         port: u16,
         tls_dns_name: String,
-        trust_nx_responses: bool,
+        trust_negative_responses: bool,
     ) -> Self {
-        Self::from_ips_encrypted(ips, port, tls_dns_name, Protocol::Tls, trust_nx_responses)
+        Self::from_ips_encrypted(
+            ips,
+            port,
+            tls_dns_name,
+            Protocol::Tls,
+            trust_negative_responses,
+        )
     }
 
     /// Configure a NameServer address and port for DNS-over-HTTPS
@@ -586,9 +592,15 @@ impl NameServerConfigGroup {
         ips: &[IpAddr],
         port: u16,
         tls_dns_name: String,
-        trust_nx_responses: bool,
+        trust_negative_responses: bool,
     ) -> Self {
-        Self::from_ips_encrypted(ips, port, tls_dns_name, Protocol::Https, trust_nx_responses)
+        Self::from_ips_encrypted(
+            ips,
+            port,
+            tls_dns_name,
+            Protocol::Https,
+            trust_negative_responses,
+        )
     }
 
     /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google).
@@ -797,7 +809,7 @@ pub struct ResolverOpts {
     pub check_names: bool,
     /// Enable edns, for larger records
     pub edns0: bool,
-    /// Use DNSSec to validate the request
+    /// Use DNSSEC to validate the request
     pub validate: bool,
     /// The ip_strategy for the Resolver to use when lookup Ipv4 or Ipv6 addresses
     pub ip_strategy: LookupIpStrategy,
@@ -834,7 +846,7 @@ pub struct ResolverOpts {
     /// Where more than one nameserver is configured, this configures the resolver to send queries
     /// to a number of servers in parallel. Defaults to 2; 0 or 1 will execute requests serially.
     pub num_concurrent_reqs: usize,
-    /// Preserve all intermediate records in the lookup response, suchas CNAME records
+    /// Preserve all intermediate records in the lookup response, such as CNAME records
     pub preserve_intermediates: bool,
     /// Try queries over TCP if they fail over UDP.
     pub try_tcp_on_error: bool,

@@ -13,7 +13,7 @@ use crate::{
     authority::{
         Authority, LookupError, LookupObject, LookupOptions, MessageRequest, UpdateResult, ZoneType,
     },
-    client::{
+    proto::{
         op::ResponseCode,
         rr::{LowerName, Name, Record, RecordType},
     },
@@ -38,7 +38,7 @@ impl ForwardAuthority {
     #[doc(hidden)]
     pub fn new(runtime: TokioHandle) -> Result<Self, String> {
         let resolver = TokioAsyncResolver::from_system_conf(runtime)
-            .map_err(|e| format!("error constructing new Resolver: {}", e))?;
+            .map_err(|e| format!("error constructing new Resolver: {e}"))?;
 
         Ok(Self {
             origin: Name::root().into(),
@@ -66,7 +66,7 @@ impl ForwardAuthority {
         // Essentially, it's saying that servers (including forwarders)
         // should emit any found CNAMEs in a response ("copy the CNAME
         // RR into the answer section"). This is the behavior that
-        // preserve_intemediates enables when set to true, and disables
+        // preserve_intermediates enables when set to true, and disables
         // when set to false. So we set it to true.
         if !options.preserve_intermediates {
             tracing::warn!(
@@ -79,7 +79,7 @@ impl ForwardAuthority {
         let config = ResolverConfig::from_parts(None, vec![], name_servers);
 
         let resolver = TokioAsyncResolver::new(config, options, TokioHandle::default())
-            .map_err(|e| format!("error constructing new Resolver: {}", e))?;
+            .map_err(|e| format!("error constructing new Resolver: {e}"))?;
 
         info!("forward resolver configured: {}: ", origin);
 
@@ -162,7 +162,7 @@ impl Authority for ForwardAuthority {
 
 /// A structure that holds the results of a forwarding lookup.
 ///
-/// This exposes an interator interface for consumption downstream.
+/// This exposes an iterator interface for consumption downstream.
 pub struct ForwardLookup(pub ResolverLookup);
 
 impl LookupObject for ForwardLookup {

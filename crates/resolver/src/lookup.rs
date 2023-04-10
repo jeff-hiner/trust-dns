@@ -429,6 +429,12 @@ macro_rules! lookup_type {
             }
         }
 
+        impl From<$l> for Lookup {
+            fn from(revlookup: $l) -> Self {
+                revlookup.0
+            }
+        }
+
         /// An iterator over the Lookup type
         pub struct $i<'i>(LookupIter<'i>);
 
@@ -568,13 +574,13 @@ pub mod tests {
             RData::A(Ipv4Addr::new(127, 0, 0, 1)),
         )]);
 
-        let resp: DnsResponse = message.into();
+        let resp = DnsResponse::from_message(message).unwrap();
         assert!(resp.contains_answer());
         Ok(resp)
     }
 
     pub fn empty() -> Result<DnsResponse, ResolveError> {
-        Ok(Message::new().into())
+        Ok(DnsResponse::from_message(Message::new()).unwrap())
     }
 
     pub fn error() -> Result<DnsResponse, ResolveError> {
@@ -672,7 +678,7 @@ pub mod tests {
             assert_eq!(**query, Query::query(Name::root(), RecordType::A));
             assert_eq!(*negative_ttl, None);
         } else {
-            panic!("wrong error recieved");
+            panic!("wrong error received");
         }
     }
 

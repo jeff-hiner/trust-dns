@@ -13,7 +13,7 @@ use tracing::debug;
 
 use crate::{
     authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
-    client::rr::{LowerName, Record, RecordType},
+    proto::rr::{LowerName, Record, RecordType},
     server::RequestInfo,
 };
 
@@ -65,7 +65,7 @@ pub trait AuthorityObject: Send + Sync {
     ///
     /// # Return value
     ///
-    /// Returns a vectory containing the results of the query, it will be empty if not found. If
+    /// Returns a vector containing the results of the query, it will be empty if not found. If
     ///  `is_secure` is true, in the case of no records found then NSEC records will be returned.
     async fn search(
         &self,
@@ -179,7 +179,7 @@ where
     ///
     /// # Return value
     ///
-    /// Returns a vectory containing the results of the query, it will be empty if not found. If
+    /// Returns a vector containing the results of the query, it will be empty if not found. If
     ///  `is_secure` is true, in the case of no records found then NSEC records will be returned.
     async fn search(
         &self,

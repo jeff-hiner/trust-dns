@@ -3,12 +3,13 @@ name = "trust-dns-client"
 version = "0.22.0"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
+rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
 description = """
-Trust-DNS is a safe and secure DNS library. This is the Client library with DNSec support.
- DNSSec with NSEC validation for negative records, is complete. The client supports
+Trust-DNS is a safe and secure DNS library. This is the Client library with DNSSEC support.
+ DNSSEC with NSEC validation for negative records, is complete. The client supports
  dynamic DNS with SIG0 authenticated requests, implementing easy to use high level
  funtions. Trust-DNS is based on the Tokio and Futures libraries, which means
  it should be easily integrated into other software that also use those
@@ -17,7 +18,7 @@ Trust-DNS is a safe and secure DNS library. This is the Client library with DNSe
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns"
-homepage = "http://www.trust-dns.org/index.html"
+homepage = "https://trust-dns.org/"
 repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The
@@ -84,7 +85,7 @@ thiserror = "1.0.20"
 time = "0.3"
 tracing = "0.1.30"
 tokio = { version = "1.0", features = ["rt"] }
-trust-dns-proto = { version = "0.22.0", path = "../proto"}
+trust-dns-proto = { version = "0.22.0", path = "../proto", features = ["text-parsing"] }
 webpki = { version = "0.22.0", optional = true }
 
 [dev-dependencies]
