@@ -40,9 +40,11 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::NS)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::NS(
-                Name::parse("a.iana-servers.net.", None).unwrap(),
-            )))
+            .set_data(Some(RData::NS(NS(Name::parse(
+                "a.iana-servers.net.",
+                None,
+            )
+            .unwrap()))))
             .clone(),
         0,
     );
@@ -52,9 +54,11 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::NS)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::NS(
-                Name::parse("b.iana-servers.net.", None).unwrap(),
-            )))
+            .set_data(Some(RData::NS(NS(Name::parse(
+                "b.iana-servers.net.",
+                None,
+            )
+            .unwrap()))))
             .clone(),
         0,
     );
@@ -84,7 +88,7 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
             .clone(),
         0,
     );
@@ -96,7 +100,7 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::AAAA)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::AAAA(Ipv6Addr::new(
+            .set_data(Some(RData::AAAA(AAAA::new(
                 0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
             ))))
             .clone(),
@@ -139,7 +143,7 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
             .clone(),
         0,
     );
@@ -151,7 +155,7 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::AAAA)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::AAAA(Ipv6Addr::new(
+            .set_data(Some(RData::AAAA(AAAA::new(
                 0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
             ))))
             .clone(),
@@ -165,7 +169,7 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::CNAME)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::CNAME(www_name)))
+            .set_data(Some(RData::CNAME(CNAME(www_name))))
             .clone(),
         0,
     );
@@ -177,9 +181,9 @@ pub fn create_example() -> InMemoryAuthority {
             .set_ttl(86400)
             .set_rr_type(RecordType::CNAME)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::CNAME(
+            .set_data(Some(RData::CNAME(CNAME(
                 Name::from_str("alias.example.com.").unwrap(),
-            )))
+            ))))
             .clone(),
         0,
     );
@@ -196,8 +200,6 @@ pub fn create_example() -> InMemoryAuthority {
 #[cfg(feature = "dnssec")]
 #[allow(unused)]
 pub fn create_secure_example() -> InMemoryAuthority {
-    use std::convert::TryInto;
-
     use openssl::rsa::Rsa;
     use time::Duration;
     use trust_dns_proto::rr::dnssec::*;

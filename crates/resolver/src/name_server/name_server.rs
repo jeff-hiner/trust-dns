@@ -7,6 +7,7 @@
 
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Formatter};
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -19,59 +20,53 @@ use proto::multicast::MDNS_IPV4;
 use proto::xfer::{DnsHandle, DnsRequest, DnsResponse, FirstAnswer};
 use tracing::debug;
 
-#[cfg(feature = "mdns")]
-use crate::config::Protocol;
 use crate::config::{NameServerConfig, ResolverOpts};
 use crate::error::ResolveError;
-use crate::name_server::{ConnectionProvider, NameServerState, NameServerStats};
-#[cfg(feature = "tokio-runtime")]
-use crate::name_server::{TokioConnection, TokioConnectionProvider, TokioHandle};
+use crate::name_server::{GenericConnection, NameServerState, NameServerStats, RuntimeProvider};
+#[cfg(feature = "mdns")]
+use proto::multicast::{MdnsClientConnect, MdnsClientStream, MdnsQueryType};
 
-/// Specifies the details of a remote NameServer used for lookups
+/// This struct is needed only for testing. Specifically, `C` is needed for mocking.
 #[derive(Clone)]
-pub struct NameServer<
-    C: DnsHandle<Error = ResolveError> + Send,
-    P: ConnectionProvider<Conn = C> + Send,
+pub struct AbstractNameServer<
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider,
 > {
     config: NameServerConfig,
     options: ResolverOpts,
     client: Arc<Mutex<Option<C>>>,
     state: Arc<NameServerState>,
     stats: Arc<NameServerStats>,
-    conn_provider: P,
+    runtime_provider: P,
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Debug
-    for NameServer<C, P>
+/// Specifies the details of a remote NameServer used for lookups
+pub type NameServer<P> = AbstractNameServer<GenericConnection, P>;
+
+impl<C, P> Debug for AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "config: {:?}, options: {:?}", self.config, self.options)
     }
 }
 
-#[cfg(feature = "tokio-runtime")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
-impl NameServer<TokioConnection, TokioConnectionProvider> {
-    /// A shortcut for constructing a nameserver usable in the Tokio runtime
-    pub fn new(config: NameServerConfig, options: ResolverOpts, runtime: TokioHandle) -> Self {
-        Self::new_with_provider(config, options, TokioConnectionProvider::new(runtime))
-    }
-}
-
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameServer<C, P> {
+impl<C, P> AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
+{
     /// Construct a new Nameserver with the configuration and options. The connection provider will create UDP and TCP sockets
-    pub fn new_with_provider(
-        config: NameServerConfig,
-        options: ResolverOpts,
-        conn_provider: P,
-    ) -> Self {
+    pub fn new(config: NameServerConfig, options: ResolverOpts, runtime_provider: P) -> Self {
         Self {
             config,
             options,
             client: Arc::new(Mutex::new(None)),
             state: Arc::new(NameServerState::init(None)),
             stats: Arc::new(NameServerStats::default()),
-            conn_provider,
+            runtime_provider,
         }
     }
 
@@ -80,7 +75,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
         config: NameServerConfig,
         options: ResolverOpts,
         client: C,
-        conn_provider: P,
+        runtime_provider: P,
     ) -> Self {
         Self {
             config,
@@ -88,7 +83,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
             client: Arc::new(Mutex::new(Some(client))),
             state: Arc::new(NameServerState::init(None)),
             stats: Arc::new(NameServerStats::default()),
-            conn_provider,
+            runtime_provider,
         }
     }
 
@@ -117,10 +112,12 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
             // TODO: we need the local EDNS options
             self.state.reinit(None);
 
-            let new_client = self
-                .conn_provider
-                .new_connection(&self.config, &self.options)
-                .await?;
+            let new_client = Box::pin(C::new_connection(
+                &self.runtime_provider,
+                &self.config,
+                &self.options,
+            ))
+            .await?;
 
             // establish a new connection
             *client = Some(new_client);
@@ -180,10 +177,10 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> NameSe
     }
 }
 
-impl<C, P> DnsHandle for NameServer<C, P>
+impl<C, P> DnsHandle for AbstractNameServer<C, P>
 where
-    C: DnsHandle<Error = ResolveError>,
-    P: ConnectionProvider<Conn = C>,
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider,
 {
     type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ResolveError>> + Send>>;
     type Error = ResolveError;
@@ -200,7 +197,11 @@ where
     }
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Ord for NameServer<C, P> {
+impl<C, P> Ord for AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
+{
     /// Custom implementation of Ord for NameServer which incorporates the performance of the connection into it's ranking
     fn cmp(&self, other: &Self) -> Ordering {
         // if they are literally equal, just return
@@ -212,16 +213,20 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Ord fo
     }
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> PartialOrd
-    for NameServer<C, P>
+impl<C, P> PartialOrd for AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> PartialEq
-    for NameServer<C, P>
+impl<C, P> PartialEq for AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
 {
     /// NameServers are equal if the config (connection information) are equal
     fn eq(&self, other: &Self) -> bool {
@@ -229,18 +234,22 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Partia
     }
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> Eq for NameServer<C, P> {}
+impl<C, P> Eq for AbstractNameServer<C, P>
+where
+    C: DnsHandle<Error = ResolveError> + Send + Sync + 'static + CreateConnection,
+    P: RuntimeProvider + Send,
+{
+}
 
 // TODO: once IPv6 is better understood, also make this a binary keep.
 #[cfg(feature = "mdns")]
-pub(crate) fn mdns_nameserver<C, P>(
+pub(crate) fn mdns_nameserver<P>(
     options: ResolverOpts,
     conn_provider: P,
     trust_negative_responses: bool,
-) -> NameServer<C, P>
+) -> NameServer<P>
 where
-    C: DnsHandle<Error = ResolveError>,
-    P: ConnectionProvider<Conn = C>,
+    P: RuntimeProvider,
 {
     let config = NameServerConfig {
         socket_addr: *MDNS_IPV4,
@@ -252,6 +261,18 @@ where
         bind_addr: None,
     };
     NameServer::new_with_provider(config, options, conn_provider)
+}
+
+/// Used for creating new connections.
+/// We introduce this trait as an intermediate layer for real logic and mock testing.
+/// If you are an end user and use `GenericConnection`, just ignore this trait.
+pub trait CreateConnection: Sized {
+    /// Create a future of Self with the help of runtime provider.
+    fn new_connection<P: RuntimeProvider>(
+        runtime_provider: &P,
+        config: &NameServerConfig,
+        options: &ResolverOpts,
+    ) -> Box<dyn Future<Output = Result<Self, ResolveError>> + Send + Unpin + 'static>;
 }
 
 #[cfg(test)]
@@ -269,6 +290,7 @@ mod tests {
 
     use super::*;
     use crate::config::Protocol;
+    use crate::name_server::TokioRuntimeProvider;
 
     #[test]
     fn test_name_server() {
@@ -284,13 +306,8 @@ mod tests {
             bind_addr: None,
         };
         let io_loop = Runtime::new().unwrap();
-        let runtime_handle = TokioHandle::default();
         let name_server = future::lazy(|_| {
-            NameServer::<_, TokioConnectionProvider>::new(
-                config,
-                ResolverOpts::default(),
-                runtime_handle,
-            )
+            NameServer::new(config, ResolverOpts::default(), TokioRuntimeProvider::new())
         });
 
         let name = Name::parse("www.example.com.", None).unwrap();
@@ -323,10 +340,8 @@ mod tests {
             bind_addr: None,
         };
         let io_loop = Runtime::new().unwrap();
-        let runtime_handle = TokioHandle::default();
-        let name_server = future::lazy(|_| {
-            NameServer::<_, TokioConnectionProvider>::new(config, options, runtime_handle)
-        });
+        let name_server =
+            future::lazy(|_| NameServer::new(config, options, TokioRuntimeProvider::new()));
 
         let name = Name::parse("www.example.com.", None).unwrap();
         assert!(io_loop

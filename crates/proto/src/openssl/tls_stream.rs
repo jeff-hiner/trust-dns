@@ -11,28 +11,32 @@ use std::pin::Pin;
 use std::{future::Future, marker::PhantomData};
 
 use futures_util::{future, TryFutureExt};
-use openssl::pkcs12::ParsedPkcs12;
-use openssl::pkey::{PKeyRef, Private};
+use openssl::pkcs12::ParsedPkcs12_2;
+use openssl::pkey::{PKey, Private};
 use openssl::ssl::{ConnectConfiguration, SslConnector, SslContextBuilder, SslMethod, SslOptions};
 use openssl::stack::Stack;
 use openssl::x509::store::X509StoreBuilder;
-use openssl::x509::{X509Ref, X509};
+use openssl::x509::X509;
 use tokio_openssl::{self, SslStream as TokioTlsStream};
 
 use crate::iocompat::{AsyncIoStdAsTokio, AsyncIoTokioAsStd};
-use crate::tcp::Connect;
 use crate::tcp::TcpStream;
+use crate::tcp::{Connect, DnsTcpStream};
 use crate::xfer::BufDnsStreamHandle;
 
 pub(crate) trait TlsIdentityExt {
-    fn identity(&mut self, pkcs12: &ParsedPkcs12) -> io::Result<()> {
-        self.identity_parts(&pkcs12.cert, &pkcs12.pkey, pkcs12.chain.as_ref())
+    fn identity(&mut self, pkcs12: &ParsedPkcs12_2) -> io::Result<()> {
+        self.identity_parts(
+            pkcs12.cert.as_ref(),
+            pkcs12.pkey.as_ref(),
+            pkcs12.ca.as_ref(),
+        )
     }
 
     fn identity_parts(
         &mut self,
-        cert: &X509Ref,
-        pkey: &PKeyRef<Private>,
+        cert: Option<&X509>,
+        pkey: Option<&PKey<Private>>,
         chain: Option<&Stack<X509>>,
     ) -> io::Result<()>;
 }
@@ -40,12 +44,16 @@ pub(crate) trait TlsIdentityExt {
 impl TlsIdentityExt for SslContextBuilder {
     fn identity_parts(
         &mut self,
-        cert: &X509Ref,
-        pkey: &PKeyRef<Private>,
+        cert: Option<&X509>,
+        pkey: Option<&PKey<Private>>,
         chain: Option<&Stack<X509>>,
     ) -> io::Result<()> {
-        self.set_certificate(cert)?;
-        self.set_private_key(pkey)?;
+        if let Some(cert) = cert {
+            self.set_certificate(cert)?;
+        }
+        if let Some(pkey) = pkey {
+            self.set_private_key(pkey)?;
+        }
         self.check_private_key()?;
         if let Some(chain) = chain {
             for cert in chain {
@@ -60,7 +68,7 @@ impl TlsIdentityExt for SslContextBuilder {
 pub type TlsStream<S> = TcpStream<AsyncIoTokioAsStd<TokioTlsStream<S>>>;
 pub(crate) type CompatTlsStream<S> = TlsStream<AsyncIoStdAsTokio<S>>;
 
-fn new(certs: Vec<X509>, pkcs12: Option<ParsedPkcs12>) -> io::Result<SslConnector> {
+fn new(certs: Vec<X509>, pkcs12: Option<ParsedPkcs12_2>) -> io::Result<SslConnector> {
     let mut tls = SslConnector::builder(SslMethod::tls())
         .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("tls error: {e}")))?;
 
@@ -103,7 +111,7 @@ fn new(certs: Vec<X509>, pkcs12: Option<ParsedPkcs12>) -> io::Result<SslConnecto
 /// Initializes a TlsStream with an existing tokio_tls::TlsStream.
 ///
 /// This is intended for use with a TlsListener and Incoming connections
-pub fn tls_stream_from_existing_tls_stream<S: Connect>(
+pub fn tls_stream_from_existing_tls_stream<S: DnsTcpStream>(
     stream: AsyncIoTokioAsStd<TokioTlsStream<AsyncIoStdAsTokio<S>>>,
     peer_addr: SocketAddr,
 ) -> (CompatTlsStream<S>, BufDnsStreamHandle) {
@@ -112,13 +120,16 @@ pub fn tls_stream_from_existing_tls_stream<S: Connect>(
     (stream, message_sender)
 }
 
-async fn connect_tls<S: Connect>(
+async fn connect_tls<S, F>(
+    future: F,
     tls_config: ConnectConfiguration,
     dns_name: String,
-    name_server: SocketAddr,
-    bind_addr: Option<SocketAddr>,
-) -> Result<TokioTlsStream<AsyncIoStdAsTokio<S>>, io::Error> {
-    let tcp = S::connect_with_bind(name_server, bind_addr)
+) -> Result<TokioTlsStream<AsyncIoStdAsTokio<S>>, io::Error>
+where
+    S: DnsTcpStream,
+    F: Future<Output = std::io::Result<S>> + Send + Unpin + 'static,
+{
+    let tcp = future
         .await
         .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("tls error: {e}")))?;
     let mut stream = tls_config
@@ -136,12 +147,12 @@ async fn connect_tls<S: Connect>(
 #[derive(Default)]
 pub struct TlsStreamBuilder<S> {
     ca_chain: Vec<X509>,
-    identity: Option<ParsedPkcs12>,
+    identity: Option<ParsedPkcs12_2>,
     bind_addr: Option<SocketAddr>,
     marker: PhantomData<S>,
 }
 
-impl<S: Connect> TlsStreamBuilder<S> {
+impl<S: DnsTcpStream> TlsStreamBuilder<S> {
     /// A builder for associating trust information to the `TlsStream`.
     pub fn new() -> Self {
         Self {
@@ -170,6 +181,63 @@ impl<S: Connect> TlsStreamBuilder<S> {
         self.bind_addr = Some(bind_addr);
     }
 
+    /// Similar to `build`, but with prebuilt tcp stream
+    #[allow(clippy::type_complexity)]
+    pub fn build_with_future<F>(
+        self,
+        future: F,
+        name_server: SocketAddr,
+        dns_name: String,
+    ) -> (
+        Pin<Box<dyn Future<Output = Result<CompatTlsStream<S>, io::Error>> + Send>>,
+        BufDnsStreamHandle,
+    )
+    where
+        F: Future<Output = std::io::Result<S>> + Send + Unpin + 'static,
+    {
+        let (message_sender, outbound_messages) = BufDnsStreamHandle::new(name_server);
+        let tls_config = match new(self.ca_chain, self.identity) {
+            Ok(c) => c,
+            Err(e) => {
+                return (
+                    Box::pin(future::err(e).map_err(|e| {
+                        io::Error::new(io::ErrorKind::ConnectionRefused, format!("tls error: {e}"))
+                    })),
+                    message_sender,
+                )
+            }
+        };
+
+        let tls_config = match tls_config.configure() {
+            Ok(c) => c,
+            Err(e) => {
+                return (
+                    Box::pin(future::err(e).map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("tls config error: {e}"),
+                        )
+                    })),
+                    message_sender,
+                )
+            }
+        };
+
+        // This set of futures collapses the next tcp socket into a stream which can be used for
+        //  sending and receiving tcp packets.
+        let stream = Box::pin(connect_tls(future, tls_config, dns_name).map_ok(move |s| {
+            TcpStream::from_stream_with_receiver(
+                AsyncIoTokioAsStd(s),
+                name_server,
+                outbound_messages,
+            )
+        }));
+
+        (stream, message_sender)
+    }
+}
+
+impl<S: Connect> TlsStreamBuilder<S> {
     /// Creates a new TlsStream to the specified name_server
     ///
     /// [RFC 7858](https://tools.ietf.org/html/rfc7858), DNS over TLS, May 2016
@@ -204,46 +272,7 @@ impl<S: Connect> TlsStreamBuilder<S> {
         Pin<Box<dyn Future<Output = Result<CompatTlsStream<S>, io::Error>> + Send>>,
         BufDnsStreamHandle,
     ) {
-        let (message_sender, outbound_messages) = BufDnsStreamHandle::new(name_server);
-        let tls_config = match new(self.ca_chain, self.identity) {
-            Ok(c) => c,
-            Err(e) => {
-                return (
-                    Box::pin(future::err(e).map_err(|e| {
-                        io::Error::new(io::ErrorKind::ConnectionRefused, format!("tls error: {e}"))
-                    })),
-                    message_sender,
-                )
-            }
-        };
-
-        let tls_config = match tls_config.configure() {
-            Ok(c) => c,
-            Err(e) => {
-                return (
-                    Box::pin(future::err(e).map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::ConnectionRefused,
-                            format!("tls config error: {e}"),
-                        )
-                    })),
-                    message_sender,
-                )
-            }
-        };
-
-        // This set of futures collapses the next tcp socket into a stream which can be used for
-        //  sending and receiving tcp packets.
-        let stream = Box::pin(
-            connect_tls(tls_config, dns_name, name_server, self.bind_addr).map_ok(move |s| {
-                TcpStream::from_stream_with_receiver(
-                    AsyncIoTokioAsStd(s),
-                    name_server,
-                    outbound_messages,
-                )
-            }),
-        );
-
-        (stream, message_sender)
+        let future = S::connect_with_bind(name_server, self.bind_addr);
+        self.build_with_future(future, name_server, dns_name)
     }
 }

@@ -16,6 +16,7 @@ use trust_dns_client::rr::*;
 use trust_dns_client::tcp::TcpClientConnection;
 use trust_dns_client::udp::UdpClientConnection;
 use trust_dns_proto::error::ProtoError;
+use trust_dns_proto::rr::rdata::A;
 use trust_dns_proto::xfer::DnsRequestSender;
 
 use trust_dns_server::authority::{Authority, Catalog};
@@ -311,11 +312,11 @@ where
 
     let record = &response.answers()[0];
     assert_eq!(record.name(), &name);
-    assert_eq!(record.rr_type(), RecordType::A);
+    assert_eq!(record.record_type(), RecordType::A);
     assert_eq!(record.dns_class(), DNSClass::IN);
 
     if let RData::A(ref address) = *record.data().unwrap() {
-        assert_eq!(address, &Ipv4Addr::new(93, 184, 216, 34))
+        assert_eq!(address, &A::new(93, 184, 216, 34))
     } else {
         panic!();
     }

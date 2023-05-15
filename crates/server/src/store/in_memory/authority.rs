@@ -1,4 +1,4 @@
-// Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,6 +7,10 @@
 
 //! All authority related types
 
+#[cfg(feature = "dnssec")]
+use std::borrow::Borrow;
+#[cfg(all(feature = "dnssec", feature = "testing"))]
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, HashSet},
     ops::DerefMut,
@@ -25,7 +29,7 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::{
     authority::DnssecAuthority,
     proto::rr::dnssec::{
-        rdata::{key::KEY, DNSSECRData, NSEC, SIG},
+        rdata::{key::KEY, DNSSECRData, NSEC},
         {tbs, DnsSecResult, SigSigner, SupportedAlgorithms},
     },
 };
@@ -44,10 +48,6 @@ use crate::{
     },
     server::RequestInfo,
 };
-#[cfg(feature = "dnssec")]
-use std::borrow::Borrow;
-#[cfg(all(feature = "dnssec", feature = "testing"))]
-use std::ops::Deref;
 
 /// InMemoryAuthority is responsible for storing the resource records for a particular zone.
 ///
@@ -632,11 +632,10 @@ impl InnerInMemory {
             return false;
         }
 
-        let rr_key = RrKey::new(record.name().into(), record.rr_type());
-        let records: &mut Arc<RecordSet> = self
-            .records
-            .entry(rr_key)
-            .or_insert_with(|| Arc::new(RecordSet::new(record.name(), record.rr_type(), serial)));
+        let rr_key = RrKey::new(record.name().into(), record.record_type());
+        let records: &mut Arc<RecordSet> = self.records.entry(rr_key).or_insert_with(|| {
+            Arc::new(RecordSet::new(record.name(), record.record_type(), serial))
+        });
 
         // because this is and Arc, we need to clone and then replace the entry
         let mut records_clone = RecordSet::clone(&*records);
@@ -745,6 +744,8 @@ impl InnerInMemory {
         zone_ttl: u32,
         zone_class: DNSClass,
     ) -> DnsSecResult<()> {
+        use crate::proto::rr::dnssec::rdata::RRSIG;
+
         let inception = OffsetDateTime::now_utc();
 
         rr_set.clear_rrsigs();
@@ -799,7 +800,7 @@ impl InnerInMemory {
             };
 
             let mut rrsig = rrsig_temp.clone();
-            rrsig.set_data(Some(RData::DNSSEC(DNSSECRData::SIG(SIG::new(
+            rrsig.set_data(Some(RData::DNSSEC(DNSSECRData::RRSIG(RRSIG::new(
                 // type_covered: RecordType,
                 rr_set.record_type(),
                 // algorithm: Algorithm,
@@ -870,14 +871,14 @@ fn maybe_next_name(
             .next()
             .and_then(Record::data)
             .and_then(RData::as_aname)
-            .map(LowerName::from)
+            .map(|aname| LowerName::from(&aname.0))
             .map(|name| (name, t)),
         (t @ RecordType::NS, RecordType::NS) => record_set
             .records_without_rrsigs()
             .next()
             .and_then(Record::data)
             .and_then(RData::as_ns)
-            .map(LowerName::from)
+            .map(|ns| LowerName::from(&ns.0))
             .map(|name| (name, t)),
         // CNAME will continue to additional processing for any query type
         (t @ RecordType::CNAME, _) => record_set
@@ -885,7 +886,7 @@ fn maybe_next_name(
             .next()
             .and_then(Record::data)
             .and_then(RData::as_cname)
-            .map(LowerName::from)
+            .map(|cname| LowerName::from(&cname.0))
             .map(|name| (name, t)),
         (t @ RecordType::MX, RecordType::MX) => record_set
             .records_without_rrsigs()

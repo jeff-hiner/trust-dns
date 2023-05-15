@@ -1,29 +1,25 @@
-/*
- * Copyright (C) 2015 Benjamin Fry <benjaminfry@me.com>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
+//
+// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
+// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// copied, modified, or distributed except according to those terms.
 
 //! Extended DNS options
 
 use std::fmt;
 
-use crate::error::*;
-use crate::rr::rdata::opt::{self, EdnsCode, EdnsOption};
-use crate::rr::rdata::OPT;
-use crate::rr::{DNSClass, Name, RData, Record, RecordType};
-
-use crate::serialize::binary::{BinEncodable, BinEncoder};
+use crate::{
+    error::*,
+    rr::{
+        rdata::{
+            opt::{EdnsCode, EdnsOption},
+            OPT,
+        },
+        DNSClass, Name, RData, Record, RecordType,
+    },
+    serialize::binary::{BinEncodable, BinEncoder},
+};
 
 /// Edns implements the higher level concepts for working with extended dns as it is used to create or be
 /// created from OPT record data.
@@ -130,7 +126,7 @@ impl Edns {
 // FIXME: this should be a TryFrom
 impl<'a> From<&'a Record> for Edns {
     fn from(value: &'a Record) -> Self {
-        assert!(value.rr_type() == RecordType::OPT);
+        assert!(value.record_type() == RecordType::OPT);
 
         let rcode_high: u8 = ((value.ttl() & 0xFF00_0000u32) >> 24) as u8;
         let version: u8 = ((value.ttl() & 0x00FF_0000u32) >> 16) as u8;
@@ -208,7 +204,7 @@ impl BinEncodable for Edns {
 
         // write the opts as rdata...
         let place = encoder.place::<u16>()?;
-        opt::emit(encoder, &self.options)?;
+        self.options.emit(encoder)?;
         let len = encoder.len_since_place(&place);
         assert!(len <= u16::max_value() as usize);
 

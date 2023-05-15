@@ -1,4 +1,4 @@
-// Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -8,11 +8,9 @@
 //! record data enum variants
 #![allow(deprecated, clippy::use_self)] // allows us to deprecate RData types
 
-use std::cmp::Ordering;
 #[cfg(test)]
 use std::convert::From;
-use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{cmp::Ordering, fmt, net::IpAddr};
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -20,19 +18,25 @@ use serde::{Deserialize, Serialize};
 use enum_as_inner::EnumAsInner;
 use tracing::{trace, warn};
 
-use super::domain::Name;
-use super::rdata;
-use super::rdata::{
-    CAA, CSYNC, HINFO, MX, NAPTR, NULL, OPENPGPKEY, OPT, SOA, SRV, SSHFP, SVCB, TLSA, TXT,
+use crate::{
+    error::{ProtoError, ProtoErrorKind, ProtoResult},
+    rr::{
+        rdata::{
+            A, AAAA, ANAME, CAA, CNAME, CSYNC, HINFO, HTTPS, MX, NAPTR, NS, NULL, OPENPGPKEY, OPT,
+            PTR, SOA, SRV, SSHFP, SVCB, TLSA, TXT,
+        },
+        record_type::RecordType,
+        RecordData, RecordDataDecodable,
+    },
+    serialize::binary::{BinDecodable, BinDecoder, BinEncodable, BinEncoder, Restrict},
 };
-use super::record_type::RecordType;
-use crate::error::*;
-use crate::serialize::binary::*;
 
 #[cfg(feature = "dnssec")]
 use super::dnssec::rdata::DNSSECRData;
 
-/// Record data enum variants
+/// Record data enum variants for all valid DNS data types.
+///
+/// This is used to represent the generic Record as it is read off the wire. Allows for a Record to be abstractly referenced without knowing it's internal until runtime.
 ///
 /// [RFC 1035](https://tools.ietf.org/html/rfc1035), DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION, November 1987
 ///
@@ -78,7 +82,7 @@ pub enum RData {
     /// decimal numbers separated by dots without any embedded spaces (e.g.,
     /// "10.2.0.52" or "192.0.5.6").
     /// ```
-    A(Ipv4Addr),
+    A(A),
 
     /// ```text
     /// -- RFC 1886 -- IPv6 DNS Extensions              December 1995
@@ -88,7 +92,7 @@ pub enum RData {
     ///    A 128 bit IPv6 address is encoded in the data portion of an AAAA
     ///    resource record in network byte order (high-order byte first).
     /// ```
-    AAAA(Ipv6Addr),
+    AAAA(AAAA),
 
     /// ```text
     /// 2.  The ANAME resource record
@@ -103,7 +107,7 @@ pub enum RData {
     ///
     ///       owner ttl class ANAME target
     /// ```
-    ANAME(Name),
+    ANAME(ANAME),
 
     /// ```text
     /// -- RFC 6844          Certification Authority Authorization     January 2013
@@ -166,7 +170,7 @@ pub enum RData {
     /// choose to restart the query at the canonical name in certain cases.  See
     /// the description of name server logic in [RFC-1034] for details.
     /// ```
-    CNAME(Name),
+    CNAME(CNAME),
 
     /// ```text
     /// 2.1.  The CSYNC Resource Record Format
@@ -234,7 +238,7 @@ pub enum RData {
     ///
     ///    Name TTL IN HTTPS SvcPriority TargetName SvcParams
     /// ```
-    HTTPS(SVCB),
+    HTTPS(HTTPS),
 
     /// ```text
     /// 3.3.9. MX RDATA format
@@ -413,7 +417,7 @@ pub enum RData {
     /// hosts which are name servers for either Internet (IN) or Hesiod (HS)
     /// class information are normally queried using IN class protocols.
     /// ```
-    NS(Name),
+    NS(NS),
 
     /// [RFC 7929](https://tools.ietf.org/html/rfc7929#section-2.1)
     ///
@@ -474,7 +478,7 @@ pub enum RData {
     /// similar to that performed by CNAME, which identifies aliases.  See the
     /// description of the IN-ADDR.ARPA domain for an example.
     /// ```
-    PTR(Name),
+    PTR(PTR),
 
     /// ```text
     /// 3.3.13. SOA RDATA format
@@ -704,49 +708,94 @@ impl RData {
         buf
     }
 
-    /// Read the RData from the given Decoder
-    pub fn read(
+    /// Converts this to a Recordtype
+    pub fn record_type(&self) -> RecordType {
+        match *self {
+            Self::A(..) => RecordType::A,
+            Self::AAAA(..) => RecordType::AAAA,
+            Self::ANAME(..) => RecordType::ANAME,
+            Self::CAA(..) => RecordType::CAA,
+            Self::CNAME(..) => RecordType::CNAME,
+            Self::CSYNC(..) => RecordType::CSYNC,
+            Self::HINFO(..) => RecordType::HINFO,
+            Self::HTTPS(..) => RecordType::HTTPS,
+            Self::MX(..) => RecordType::MX,
+            Self::NAPTR(..) => RecordType::NAPTR,
+            Self::NS(..) => RecordType::NS,
+            Self::NULL(..) => RecordType::NULL,
+            Self::OPENPGPKEY(..) => RecordType::OPENPGPKEY,
+            Self::OPT(..) => RecordType::OPT,
+            Self::PTR(..) => RecordType::PTR,
+            Self::SOA(..) => RecordType::SOA,
+            Self::SRV(..) => RecordType::SRV,
+            Self::SSHFP(..) => RecordType::SSHFP,
+            Self::SVCB(..) => RecordType::SVCB,
+            Self::TLSA(..) => RecordType::TLSA,
+            Self::TXT(..) => RecordType::TXT,
+            #[cfg(feature = "dnssec")]
+            Self::DNSSEC(ref rdata) => DNSSECRData::to_record_type(rdata),
+            Self::Unknown { code, .. } => RecordType::Unknown(code),
+            Self::ZERO => RecordType::ZERO,
+        }
+    }
+
+    /// If this is an A or AAAA record type, then an IpAddr will be returned
+    pub fn ip_addr(&self) -> Option<IpAddr> {
+        match *self {
+            Self::A(a) => Some(IpAddr::from(a.0)),
+            Self::AAAA(aaaa) => Some(IpAddr::from(aaaa.0)),
+            _ => None,
+        }
+    }
+
+    /// Returns true if
+    pub fn is_soa(&self) -> bool {
+        matches!(self, RData::SOA(..))
+    }
+
+    /// Read data from the decoder
+    pub(crate) fn read_data(
         decoder: &mut BinDecoder<'_>,
         record_type: RecordType,
-        rdata_length: Restrict<u16>,
+        length: Restrict<u16>,
     ) -> ProtoResult<Self> {
         let start_idx = decoder.index();
 
         let result = match record_type {
             RecordType::A => {
                 trace!("reading A");
-                rdata::a::read(decoder).map(Self::A)
+                A::read(decoder).map(Self::A)
             }
             RecordType::AAAA => {
                 trace!("reading AAAA");
-                rdata::aaaa::read(decoder).map(Self::AAAA)
+                AAAA::read(decoder).map(Self::AAAA)
             }
             RecordType::ANAME => {
                 trace!("reading ANAME");
-                rdata::name::read(decoder).map(Self::ANAME)
+                ANAME::read(decoder).map(Self::ANAME)
             }
             rt @ RecordType::ANY | rt @ RecordType::AXFR | rt @ RecordType::IXFR => {
                 return Err(ProtoErrorKind::UnknownRecordTypeValue(rt.into()).into());
             }
             RecordType::CAA => {
                 trace!("reading CAA");
-                rdata::caa::read(decoder, rdata_length).map(Self::CAA)
+                CAA::read_data(decoder, length).map(Self::CAA)
             }
             RecordType::CNAME => {
                 trace!("reading CNAME");
-                rdata::name::read(decoder).map(Self::CNAME)
+                CNAME::read(decoder).map(Self::CNAME)
             }
             RecordType::CSYNC => {
                 trace!("reading CSYNC");
-                rdata::csync::read(decoder, rdata_length).map(Self::CSYNC)
+                CSYNC::read_data(decoder, length).map(Self::CSYNC)
             }
             RecordType::HINFO => {
                 trace!("reading HINFO");
-                rdata::hinfo::read(decoder).map(Self::HINFO)
+                HINFO::read_data(decoder, length).map(Self::HINFO)
             }
             RecordType::HTTPS => {
                 trace!("reading HTTPS");
-                rdata::svcb::read(decoder, rdata_length).map(Self::HTTPS)
+                HTTPS::read_data(decoder, length).map(Self::HTTPS)
             }
             RecordType::ZERO => {
                 trace!("reading EMPTY");
@@ -757,63 +806,61 @@ impl RData {
             }
             RecordType::MX => {
                 trace!("reading MX");
-                rdata::mx::read(decoder).map(Self::MX)
+                MX::read_data(decoder, length).map(Self::MX)
             }
             RecordType::NAPTR => {
                 trace!("reading NAPTR");
-                rdata::naptr::read(decoder).map(Self::NAPTR)
+                NAPTR::read_data(decoder, length).map(Self::NAPTR)
             }
             RecordType::NULL => {
                 trace!("reading NULL");
-                rdata::null::read(decoder, rdata_length).map(Self::NULL)
+                NULL::read_data(decoder, length).map(Self::NULL)
             }
             RecordType::NS => {
                 trace!("reading NS");
-                rdata::name::read(decoder).map(Self::NS)
+                NS::read(decoder).map(Self::NS)
             }
             RecordType::OPENPGPKEY => {
                 trace!("reading OPENPGPKEY");
-                rdata::openpgpkey::read(decoder, rdata_length).map(Self::OPENPGPKEY)
+                OPENPGPKEY::read_data(decoder, length).map(Self::OPENPGPKEY)
             }
             RecordType::OPT => {
                 trace!("reading OPT");
-                rdata::opt::read(decoder, rdata_length).map(Self::OPT)
+                OPT::read_data(decoder, length).map(Self::OPT)
             }
             RecordType::PTR => {
                 trace!("reading PTR");
-                rdata::name::read(decoder).map(Self::PTR)
+                PTR::read(decoder).map(Self::PTR)
             }
             RecordType::SOA => {
                 trace!("reading SOA");
-                rdata::soa::read(decoder).map(Self::SOA)
+                SOA::read_data(decoder, length).map(Self::SOA)
             }
             RecordType::SRV => {
                 trace!("reading SRV");
-                rdata::srv::read(decoder).map(Self::SRV)
+                SRV::read_data(decoder, length).map(Self::SRV)
             }
             RecordType::SSHFP => {
                 trace!("reading SSHFP");
-                rdata::sshfp::read(decoder, rdata_length).map(Self::SSHFP)
+                SSHFP::read_data(decoder, length).map(Self::SSHFP)
             }
             RecordType::SVCB => {
                 trace!("reading SVCB");
-                rdata::svcb::read(decoder, rdata_length).map(Self::SVCB)
+                SVCB::read_data(decoder, length).map(Self::SVCB)
             }
             RecordType::TLSA => {
                 trace!("reading TLSA");
-                rdata::tlsa::read(decoder, rdata_length).map(Self::TLSA)
+                TLSA::read_data(decoder, length).map(Self::TLSA)
             }
             RecordType::TXT => {
                 trace!("reading TXT");
-                rdata::txt::read(decoder, rdata_length).map(Self::TXT)
+                TXT::read_data(decoder, length).map(Self::TXT)
             }
             #[cfg(feature = "dnssec")]
-            r if r.is_dnssec() => {
-                DNSSECRData::read(decoder, record_type, rdata_length).map(Self::DNSSEC)
-            }
+            r if r.is_dnssec() => DNSSECRData::read(decoder, record_type, length).map(Self::DNSSEC),
             record_type => {
                 trace!("reading Unknown record: {}", record_type);
-                rdata::null::read(decoder, rdata_length).map(|rdata| Self::Unknown {
+                NULL::read_data(decoder, length).map(|rdata| Self::Unknown {
                     code: record_type.into(),
                     rdata,
                 })
@@ -822,7 +869,7 @@ impl RData {
 
         // we should have read rdata_length, but we did not
         let read = decoder.index() - start_idx;
-        rdata_length
+        length
             .map(|u| u as usize)
             .verify_unwrap(|rdata_length| read == *rdata_length)
             .map_err(|rdata_length| {
@@ -834,7 +881,9 @@ impl RData {
 
         result
     }
+}
 
+impl BinEncodable for RData {
     /// [RFC 4034](https://tools.ietf.org/html/rfc4034#section-6), DNSSEC Resource Records, March 2005
     ///
     /// ```text
@@ -902,97 +951,54 @@ impl RData {
     ///   DNAME, and A6.
     ///   ...
     /// ```
-    pub fn emit(&self, encoder: &mut BinEncoder<'_>) -> ProtoResult<()> {
+    fn emit(&self, encoder: &mut BinEncoder<'_>) -> ProtoResult<()> {
         match *self {
-            Self::A(address) => rdata::a::emit(encoder, address),
-            Self::AAAA(ref address) => rdata::aaaa::emit(encoder, address),
-            Self::ANAME(ref name) => {
-                encoder.with_canonical_names(|encoder| rdata::name::emit(encoder, name))
-            }
-            Self::CAA(ref caa) => {
-                encoder.with_canonical_names(|encoder| rdata::caa::emit(encoder, caa))
-            }
-            // to_lowercase for rfc4034 and rfc6840
-            Self::CNAME(ref name) | RData::NS(ref name) | RData::PTR(ref name) => {
-                rdata::name::emit(encoder, name)
-            }
-            Self::CSYNC(ref csync) => rdata::csync::emit(encoder, csync),
-            Self::HINFO(ref hinfo) => rdata::hinfo::emit(encoder, hinfo),
-            Self::HTTPS(ref svcb) => rdata::svcb::emit(encoder, svcb),
+            Self::A(ref address) => address.emit(encoder),
+            Self::AAAA(ref address) => address.emit(encoder),
+            Self::ANAME(ref name) => encoder.with_canonical_names(|encoder| name.emit(encoder)),
+            Self::CAA(ref caa) => encoder.with_canonical_names(|encoder| caa.emit(encoder)),
+            Self::CNAME(ref cname) => cname.emit(encoder),
+            Self::NS(ref ns) => ns.emit(encoder),
+            Self::PTR(ref ptr) => ptr.emit(encoder),
+            Self::CSYNC(ref csync) => csync.emit(encoder),
+            Self::HINFO(ref hinfo) => hinfo.emit(encoder),
+            Self::HTTPS(ref https) => https.emit(encoder),
             Self::ZERO => Ok(()),
-            // to_lowercase for rfc4034 and rfc6840
-            Self::MX(ref mx) => rdata::mx::emit(encoder, mx),
-            Self::NAPTR(ref naptr) => {
-                encoder.with_canonical_names(|encoder| rdata::naptr::emit(encoder, naptr))
-            }
-            Self::NULL(ref null) => rdata::null::emit(encoder, null),
+            Self::MX(ref mx) => mx.emit(encoder),
+            Self::NAPTR(ref naptr) => encoder.with_canonical_names(|encoder| naptr.emit(encoder)),
+            Self::NULL(ref null) => null.emit(encoder),
             Self::OPENPGPKEY(ref openpgpkey) => {
-                encoder.with_canonical_names(|encoder| rdata::openpgpkey::emit(encoder, openpgpkey))
+                encoder.with_canonical_names(|encoder| openpgpkey.emit(encoder))
             }
-            Self::OPT(ref opt) => rdata::opt::emit(encoder, opt),
-            // to_lowercase for rfc4034 and rfc6840
-            Self::SOA(ref soa) => rdata::soa::emit(encoder, soa),
-            // to_lowercase for rfc4034 and rfc6840
-            Self::SRV(ref srv) => {
-                encoder.with_canonical_names(|encoder| rdata::srv::emit(encoder, srv))
-            }
-            Self::SSHFP(ref sshfp) => {
-                encoder.with_canonical_names(|encoder| rdata::sshfp::emit(encoder, sshfp))
-            }
-            Self::SVCB(ref svcb) => rdata::svcb::emit(encoder, svcb),
-            Self::TLSA(ref tlsa) => {
-                encoder.with_canonical_names(|encoder| rdata::tlsa::emit(encoder, tlsa))
-            }
-            Self::TXT(ref txt) => rdata::txt::emit(encoder, txt),
+            Self::OPT(ref opt) => opt.emit(encoder),
+            Self::SOA(ref soa) => soa.emit(encoder),
+            Self::SRV(ref srv) => encoder.with_canonical_names(|encoder| srv.emit(encoder)),
+            Self::SSHFP(ref sshfp) => encoder.with_canonical_names(|encoder| sshfp.emit(encoder)),
+            Self::SVCB(ref svcb) => svcb.emit(encoder),
+            Self::TLSA(ref tlsa) => encoder.with_canonical_names(|encoder| tlsa.emit(encoder)),
+            Self::TXT(ref txt) => txt.emit(encoder),
             #[cfg(feature = "dnssec")]
             Self::DNSSEC(ref rdata) => encoder.with_canonical_names(|encoder| rdata.emit(encoder)),
-            Self::Unknown { ref rdata, .. } => rdata::null::emit(encoder, rdata),
+            Self::Unknown { ref rdata, .. } => rdata.emit(encoder),
         }
     }
+}
 
-    /// Converts this to a Recordtype
-    pub fn to_record_type(&self) -> RecordType {
-        match *self {
-            Self::A(..) => RecordType::A,
-            Self::AAAA(..) => RecordType::AAAA,
-            Self::ANAME(..) => RecordType::ANAME,
-            Self::CAA(..) => RecordType::CAA,
-            Self::CNAME(..) => RecordType::CNAME,
-            Self::CSYNC(..) => RecordType::CSYNC,
-            Self::HINFO(..) => RecordType::HINFO,
-            Self::HTTPS(..) => RecordType::HTTPS,
-            Self::MX(..) => RecordType::MX,
-            Self::NAPTR(..) => RecordType::NAPTR,
-            Self::NS(..) => RecordType::NS,
-            Self::NULL(..) => RecordType::NULL,
-            Self::OPENPGPKEY(..) => RecordType::OPENPGPKEY,
-            Self::OPT(..) => RecordType::OPT,
-            Self::PTR(..) => RecordType::PTR,
-            Self::SOA(..) => RecordType::SOA,
-            Self::SRV(..) => RecordType::SRV,
-            Self::SSHFP(..) => RecordType::SSHFP,
-            Self::SVCB(..) => RecordType::SVCB,
-            Self::TLSA(..) => RecordType::TLSA,
-            Self::TXT(..) => RecordType::TXT,
-            #[cfg(feature = "dnssec")]
-            Self::DNSSEC(ref rdata) => DNSSECRData::to_record_type(rdata),
-            Self::Unknown { code, .. } => RecordType::Unknown(code),
-            Self::ZERO => RecordType::ZERO,
-        }
+impl RecordData for RData {
+    fn try_from_rdata(data: RData) -> Result<Self, RData> {
+        Ok(data)
     }
 
-    /// If this is an A or AAAA record type, then an IpAddr will be returned
-    pub fn to_ip_addr(&self) -> Option<IpAddr> {
-        match *self {
-            Self::A(a) => Some(IpAddr::from(a)),
-            Self::AAAA(aaaa) => Some(IpAddr::from(aaaa)),
-            _ => None,
-        }
+    fn try_borrow(data: &RData) -> Option<&Self> {
+        Some(data)
     }
 
-    /// Returns true if
-    pub fn is_soa(&self) -> bool {
-        matches!(self, RData::SOA(..))
+    fn record_type(&self) -> RecordType {
+        self.record_type()
+    }
+
+    fn into_rdata(self) -> RData {
+        self
     }
 }
 
@@ -1008,10 +1014,12 @@ impl fmt::Display for RData {
             Self::ANAME(ref name) => w(f, name),
             Self::CAA(ref caa) => w(f, caa),
             // to_lowercase for rfc4034 and rfc6840
-            Self::CNAME(ref name) | RData::NS(ref name) | RData::PTR(ref name) => w(f, name),
+            Self::CNAME(ref cname) => w(f, cname),
+            Self::NS(ref ns) => w(f, ns),
+            Self::PTR(ref ptr) => w(f, ptr),
             Self::CSYNC(ref csync) => w(f, csync),
             Self::HINFO(ref hinfo) => w(f, hinfo),
-            Self::HTTPS(ref svcb) => w(f, svcb),
+            Self::HTTPS(ref https) => w(f, https),
             Self::ZERO => Ok(()),
             // to_lowercase for rfc4034 and rfc6840
             Self::MX(ref mx) => w(f, mx),
@@ -1071,8 +1079,6 @@ impl Ord for RData {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
-    use std::net::Ipv4Addr;
-    use std::net::Ipv6Addr;
     use std::str::FromStr;
 
     use super::*;
@@ -1086,7 +1092,7 @@ mod tests {
     fn get_data() -> Vec<(RData, Vec<u8>)> {
         vec![
             (
-                RData::CNAME(Name::from_str("www.example.com").unwrap()),
+                RData::CNAME(CNAME(Name::from_str("www.example.com").unwrap())),
                 vec![
                     3, b'w', b'w', b'w', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c',
                     b'o', b'm', 0,
@@ -1097,14 +1103,14 @@ mod tests {
                 vec![1, 0, 1, b'n', 0],
             ),
             (
-                RData::NS(Name::from_str("www.example.com").unwrap()),
+                RData::NS(NS(Name::from_str("www.example.com").unwrap())),
                 vec![
                     3, b'w', b'w', b'w', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c',
                     b'o', b'm', 0,
                 ],
             ),
             (
-                RData::PTR(Name::from_str("www.example.com").unwrap()),
+                RData::PTR(PTR(Name::from_str("www.example.com").unwrap())),
                 vec![
                     3, b'w', b'w', b'w', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c',
                     b'o', b'm', 0,
@@ -1138,12 +1144,9 @@ mod tests {
                     6, b'a', b'b', b'c', b'd', b'e', b'f', 3, b'g', b'h', b'i', 0, 1, b'j',
                 ],
             ),
+            (RData::A(A::from_str("0.0.0.0").unwrap()), vec![0, 0, 0, 0]),
             (
-                RData::A(Ipv4Addr::from_str("0.0.0.0").unwrap()),
-                vec![0, 0, 0, 0],
-            ),
-            (
-                RData::AAAA(Ipv6Addr::from_str("::").unwrap()),
+                RData::AAAA(AAAA::from_str("::").unwrap()),
                 vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ),
             (
@@ -1169,8 +1172,8 @@ mod tests {
     #[test]
     fn test_order() {
         let ordered: Vec<RData> = vec![
-            RData::A(Ipv4Addr::from_str("0.0.0.0").unwrap()),
-            RData::AAAA(Ipv6Addr::from_str("::").unwrap()),
+            RData::A(A::from_str("0.0.0.0").unwrap()),
+            RData::AAAA(AAAA::from_str("::").unwrap()),
             RData::SRV(SRV::new(
                 1,
                 2,
@@ -1178,9 +1181,9 @@ mod tests {
                 Name::from_str("www.example.com").unwrap(),
             )),
             RData::MX(MX::new(256, Name::from_str("n").unwrap())),
-            RData::CNAME(Name::from_str("www.example.com").unwrap()),
-            RData::PTR(Name::from_str("www.example.com").unwrap()),
-            RData::NS(Name::from_str("www.example.com").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("www.example.com").unwrap())),
+            RData::PTR(PTR(Name::from_str("www.example.com").unwrap())),
+            RData::NS(NS(Name::from_str("www.example.com").unwrap())),
             RData::SOA(SOA::new(
                 Name::from_str("www.example.com").unwrap(),
                 Name::from_str("xxx.example.com").unwrap(),
@@ -1198,10 +1201,10 @@ mod tests {
             ])),
         ];
         let mut unordered = vec![
-            RData::CNAME(Name::from_str("www.example.com").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("www.example.com").unwrap())),
             RData::MX(MX::new(256, Name::from_str("n").unwrap())),
-            RData::PTR(Name::from_str("www.example.com").unwrap()),
-            RData::NS(Name::from_str("www.example.com").unwrap()),
+            RData::PTR(PTR(Name::from_str("www.example.com").unwrap())),
+            RData::NS(NS(Name::from_str("www.example.com").unwrap())),
             RData::SOA(SOA::new(
                 Name::from_str("www.example.com").unwrap(),
                 Name::from_str("xxx.example.com").unwrap(),
@@ -1217,8 +1220,8 @@ mod tests {
                 "".to_string(),
                 "j".to_string(),
             ])),
-            RData::A(Ipv4Addr::from_str("0.0.0.0").unwrap()),
-            RData::AAAA(Ipv6Addr::from_str("::").unwrap()),
+            RData::A(A::from_str("0.0.0.0").unwrap()),
+            RData::AAAA(AAAA::from_str("::").unwrap()),
             RData::SRV(SRV::new(
                 1,
                 2,
@@ -1239,7 +1242,7 @@ mod tests {
             let mut decoder = BinDecoder::new(&binary);
 
             assert_eq!(
-                RData::read(
+                RData::read_data(
                     &mut decoder,
                     record_type_from_rdata(&expect),
                     Restrict::new(length)

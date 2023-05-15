@@ -1,25 +1,24 @@
 pub mod mut_message_client;
 
-use std::env;
-use std::io::{stdout, BufRead, BufReader, Write};
-use std::mem;
-use std::net::*;
-use std::panic::{catch_unwind, UnwindSafe};
-use std::process::{Command, Stdio};
-use std::str::FromStr;
-use std::sync::*;
-use std::thread;
-use std::time::*;
+use std::{
+    env,
+    io::{stdout, BufRead, BufReader, Write},
+    mem,
+    panic::{catch_unwind, UnwindSafe},
+    process::{Command, Stdio},
+    str::FromStr,
+    sync::*,
+    thread,
+    time::*,
+};
 
 use regex::Regex;
 use tokio::runtime::Runtime;
-
 use tracing::{info, warn};
-use trust_dns_client::client::*;
-use trust_dns_client::proto::xfer::DnsResponse;
-use trust_dns_client::rr::*;
+use trust_dns_client::{client::*, proto::xfer::DnsResponse};
 #[cfg(feature = "dnssec")]
-use trust_dns_proto::rr::{dnssec::rdata::DNSSECRData, dnssec::*};
+use trust_dns_proto::rr::dnssec::*;
+use trust_dns_proto::rr::{rdata::A, *};
 
 #[cfg(feature = "dnssec")]
 use self::mut_message_client::MutMessageHandle;
@@ -250,7 +249,7 @@ pub fn query_a<C: ClientHandle>(io_loop: &mut Runtime, client: &mut C) {
     let record = &response.answers()[0];
 
     if let Some(RData::A(ref address)) = record.data() {
-        assert_eq!(address, &Ipv4Addr::new(127, 0, 0, 1))
+        assert_eq!(address, &A::new(127, 0, 0, 1))
     } else {
         panic!("wrong RDATA")
     }
@@ -266,6 +265,8 @@ pub fn query_all_dnssec(
     algorithm: Algorithm,
     with_rfc6975: bool,
 ) {
+    use trust_dns_client::rr::rdata::{DNSKEY, RRSIG};
+
     let name = Name::from_str("example.com.").unwrap();
     let mut client = MutMessageHandle::new(client);
     client.lookup_options.set_is_dnssec(true);
@@ -280,14 +281,8 @@ pub fn query_all_dnssec(
     let dnskey = response
         .answers()
         .iter()
-        .filter(|r| r.rr_type() == RecordType::DNSKEY)
-        .map(|r| {
-            if let Some(RData::DNSSEC(DNSSECRData::DNSKEY(ref dnskey))) = r.data() {
-                dnskey.clone()
-            } else {
-                panic!("wrong RDATA")
-            }
-        })
+        .filter_map(Record::data)
+        .filter_map(DNSKEY::try_borrow)
         .find(|d| d.algorithm() == algorithm);
     assert!(dnskey.is_some(), "DNSKEY not found");
 
@@ -296,14 +291,8 @@ pub fn query_all_dnssec(
     let rrsig = response
         .answers()
         .iter()
-        .filter(|r| r.rr_type() == RecordType::RRSIG)
-        .map(|r| {
-            if let Some(RData::DNSSEC(DNSSECRData::SIG(ref rrsig))) = r.data() {
-                rrsig.clone()
-            } else {
-                panic!("wrong RDATA")
-            }
-        })
+        .filter_map(Record::data)
+        .filter_map(RRSIG::try_borrow)
         .filter(|rrsig| rrsig.algorithm() == algorithm)
         .find(|rrsig| rrsig.type_covered() == RecordType::DNSKEY);
     assert!(rrsig.is_some(), "Associated RRSIG not found");

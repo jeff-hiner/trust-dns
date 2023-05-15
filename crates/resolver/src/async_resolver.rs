@@ -16,7 +16,6 @@ use proto::rr::domain::usage::ONION;
 use proto::rr::domain::TryParseIp;
 use proto::rr::{IntoName, Name, Record, RecordType};
 use proto::xfer::{DnsRequestOptions, RetryDnsHandle};
-use proto::DnsHandle;
 use tracing::{debug, trace};
 
 use crate::caching_client::CachingClient;
@@ -25,12 +24,9 @@ use crate::dns_lru::{self, DnsLru};
 use crate::error::*;
 use crate::lookup::{self, Lookup, LookupEither, LookupFuture};
 use crate::lookup_ip::{LookupIp, LookupIpFuture};
-use crate::name_server::{
-    ConnectionProvider, GenericConnection, GenericConnectionProvider, NameServerPool,
-    RuntimeProvider,
-};
 #[cfg(feature = "tokio-runtime")]
-use crate::name_server::{TokioConnection, TokioConnectionProvider, TokioHandle};
+use crate::name_server::TokioRuntimeProvider;
+use crate::name_server::{AbstractNameServerPool, RuntimeProvider};
 
 use crate::Hosts;
 
@@ -61,17 +57,17 @@ use crate::Hosts;
 /// linked to it. When all of its [`AsyncResolver`]s have been dropped, the
 /// background future will finish.
 #[derive(Clone)]
-pub struct AsyncResolver<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> {
+pub struct AsyncResolver<P: RuntimeProvider> {
     config: ResolverConfig,
     options: ResolverOpts,
-    client_cache: CachingClient<LookupEither<C, P>, ResolveError>,
+    client_cache: CachingClient<LookupEither<P>, ResolveError>,
     hosts: Option<Arc<Hosts>>,
 }
 
 /// An AsyncResolver used with Tokio
 #[cfg(feature = "tokio-runtime")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
-pub type TokioAsyncResolver = AsyncResolver<TokioConnection, TokioConnectionProvider>;
+pub type TokioAsyncResolver = AsyncResolver<TokioRuntimeProvider>;
 
 macro_rules! lookup_fn {
     ($p:ident, $l:ty, $r:path) => {
@@ -123,7 +119,7 @@ impl TokioAsyncResolver {
     /// documentation for `AsyncResolver` for more information on how to use
     /// the background future.
     pub fn tokio(config: ResolverConfig, options: ResolverOpts) -> Result<Self, ResolveError> {
-        Self::new(config, options, TokioHandle::default())
+        Self::new(config, options, TokioRuntimeProvider::new())
     }
 
     /// Constructs a new Tokio based Resolver with the system configuration.
@@ -136,11 +132,11 @@ impl TokioAsyncResolver {
         doc(cfg(all(feature = "system-config", any(unix, target_os = "windows"))))
     )]
     pub fn tokio_from_system_conf() -> Result<Self, ResolveError> {
-        Self::from_system_conf(TokioHandle::default())
+        Self::from_system_conf(TokioRuntimeProvider::new())
     }
 }
 
-impl<R: RuntimeProvider> AsyncResolver<GenericConnection, GenericConnectionProvider<R>> {
+impl<R: RuntimeProvider> AsyncResolver<R> {
     /// Construct a new generic `AsyncResolver` with the provided configuration.
     ///
     /// see [TokioAsyncResolver::tokio(..)] instead.
@@ -159,13 +155,9 @@ impl<R: RuntimeProvider> AsyncResolver<GenericConnection, GenericConnectionProvi
     pub fn new(
         config: ResolverConfig,
         options: ResolverOpts,
-        runtime: R::Handle,
+        provider: R,
     ) -> Result<Self, ResolveError> {
-        Self::new_with_conn(
-            config,
-            options,
-            GenericConnectionProvider::<R>::new(runtime),
-        )
+        Self::new_with_conn(config, options, provider)
     }
 
     /// Constructs a new Resolver with the system configuration.
@@ -179,8 +171,8 @@ impl<R: RuntimeProvider> AsyncResolver<GenericConnection, GenericConnectionProvi
         docsrs,
         doc(cfg(all(feature = "system-config", any(unix, target_os = "windows"))))
     )]
-    pub fn from_system_conf(runtime: R::Handle) -> Result<Self, ResolveError> {
-        Self::from_system_conf_with_provider(GenericConnectionProvider::<R>::new(runtime))
+    pub fn from_system_conf(runtime: R) -> Result<Self, ResolveError> {
+        Self::from_system_conf_with_provider(runtime)
     }
 
     /// Flushes/Removes all entries from the cache
@@ -189,7 +181,7 @@ impl<R: RuntimeProvider> AsyncResolver<GenericConnection, GenericConnectionProvi
     }
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> AsyncResolver<C, P> {
+impl<P: RuntimeProvider> AsyncResolver<P> {
     /// Construct a new `AsyncResolver` with the provided configuration.
     ///
     /// # Arguments
@@ -209,7 +201,8 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> AsyncR
         options: ResolverOpts,
         conn_provider: P,
     ) -> Result<Self, ResolveError> {
-        let pool = NameServerPool::from_config_with_provider(&config, &options, conn_provider);
+        let pool =
+            AbstractNameServerPool::from_config_with_provider(&config, &options, conn_provider);
         let either;
         let client = RetryDnsHandle::new(pool, options.attempts);
         if options.validate {
@@ -404,7 +397,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> AsyncR
             if self.options.ndots > 4 {
                 finally_ip_addr = Some(record);
             } else {
-                let query = Query::query(name, ip_addr.to_record_type());
+                let query = Query::query(name, ip_addr.record_type());
                 let lookup = Lookup::new_with_max_ttl(query, Arc::from([record]));
                 return Ok(lookup.into());
             }
@@ -458,9 +451,7 @@ impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> AsyncR
     lookup_fn!(txt_lookup, lookup::TxtLookup, RecordType::TXT);
 }
 
-impl<C: DnsHandle<Error = ResolveError>, P: ConnectionProvider<Conn = C>> fmt::Debug
-    for AsyncResolver<C, P>
-{
+impl<P: RuntimeProvider> fmt::Debug for AsyncResolver<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsyncResolver")
             .field("request_tx", &"...")
@@ -476,7 +467,7 @@ pub mod testing {
     use std::{net::*, str::FromStr};
 
     use crate::config::{LookupIpStrategy, NameServerConfig, ResolverConfig, ResolverOpts};
-    use crate::name_server::{GenericConnection, GenericConnectionProvider, RuntimeProvider};
+    use crate::name_server::RuntimeProvider;
     use crate::AsyncResolver;
     use proto::{rr::Name, Executor};
 
@@ -484,14 +475,10 @@ pub mod testing {
     pub fn lookup_test<E: Executor, R: RuntimeProvider>(
         config: ResolverConfig,
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
-            config,
-            ResolverOpts::default(),
-            handle,
-        )
-        .expect("failed to create resolver");
+        let resolver = AsyncResolver::<R>::new(config, ResolverOpts::default(), handle)
+            .expect("failed to create resolver");
 
         let response = exec
             .block_on(resolver.lookup_ip("www.example.com."))
@@ -513,13 +500,10 @@ pub mod testing {
     }
 
     /// Test IP lookup from IP literals.
-    pub fn ip_lookup_test<E: Executor, R: RuntimeProvider>(mut exec: E, handle: R::Handle) {
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
-            ResolverConfig::default(),
-            ResolverOpts::default(),
-            handle,
-        )
-        .expect("failed to create resolver");
+    pub fn ip_lookup_test<E: Executor, R: RuntimeProvider>(mut exec: E, handle: R) {
+        let resolver =
+            AsyncResolver::<R>::new(ResolverConfig::default(), ResolverOpts::default(), handle)
+                .expect("failed to create resolver");
 
         let response = exec
             .block_on(resolver.lookup_ip("10.1.0.2"))
@@ -544,23 +528,20 @@ pub mod testing {
 
     /// Test IP lookup from IP literals across threads.
     pub fn ip_lookup_across_threads_test<E: Executor + Send + 'static, R: RuntimeProvider>(
-        handle: R::Handle,
+        handle: R,
     ) {
         // Test ensuring that running the background task on a separate
         // executor in a separate thread from the futures returned by the
         // AsyncResolver works correctly.
         use std::thread;
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
-            ResolverConfig::default(),
-            ResolverOpts::default(),
-            handle,
-        )
-        .expect("failed to create resolver");
+        let resolver =
+            AsyncResolver::<R>::new(ResolverConfig::default(), ResolverOpts::default(), handle)
+                .expect("failed to create resolver");
 
         let resolver_one = resolver.clone();
         let resolver_two = resolver;
 
-        let test_fn = |resolver: AsyncResolver<GenericConnection, GenericConnectionProvider<R>>| {
+        let test_fn = |resolver: AsyncResolver<R>| {
             let mut exec = E::new();
 
             let response = exec
@@ -601,11 +582,11 @@ pub mod testing {
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
     pub fn sec_lookup_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         //env_logger::try_init().ok();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::new(
             ResolverConfig::default(),
             ResolverOpts {
                 validate: true,
@@ -642,11 +623,11 @@ pub mod testing {
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
     pub fn sec_lookup_fails_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         use crate::error::*;
         use proto::rr::RecordType;
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::new(
             ResolverConfig::default(),
             ResolverOpts {
                 validate: true,
@@ -686,13 +667,10 @@ pub mod testing {
     #[cfg_attr(docsrs, doc(cfg(feature = "system-config")))]
     pub fn system_lookup_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let resolver =
-            AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::from_system_conf(
-                handle,
-            )
-            .expect("failed to create resolver");
+            AsyncResolver::<R>::from_system_conf(handle).expect("failed to create resolver");
 
         let response = exec
             .block_on(resolver.lookup_ip("www.example.com."))
@@ -718,13 +696,10 @@ pub mod testing {
     #[cfg_attr(docsrs, doc(cfg(feature = "system-config")))]
     pub fn hosts_lookup_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let resolver =
-            AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::from_system_conf(
-                handle,
-            )
-            .expect("failed to create resolver");
+            AsyncResolver::<R>::from_system_conf(handle).expect("failed to create resolver");
 
         let response = exec
             .block_on(resolver.lookup_ip("a.com"))
@@ -741,10 +716,7 @@ pub mod testing {
     }
 
     /// Test fqdn.
-    pub fn fqdn_test<E: Executor + Send + 'static, R: RuntimeProvider>(
-        mut exec: E,
-        handle: R::Handle,
-    ) {
+    pub fn fqdn_test<E: Executor + Send + 'static, R: RuntimeProvider>(mut exec: E, handle: R) {
         let domain = Name::from_str("incorrect.example.com.").unwrap();
         let search = vec![
             Name::from_str("bad.example.com.").unwrap(),
@@ -753,7 +725,7 @@ pub mod testing {
         let name_servers: Vec<NameServerConfig> =
             ResolverConfig::default().name_servers().to_owned();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::from_parts(Some(domain), search, name_servers),
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -778,10 +750,7 @@ pub mod testing {
     }
 
     /// Test ndots with non-fqdn.
-    pub fn ndots_test<E: Executor + Send + 'static, R: RuntimeProvider>(
-        mut exec: E,
-        handle: R::Handle,
-    ) {
+    pub fn ndots_test<E: Executor + Send + 'static, R: RuntimeProvider>(mut exec: E, handle: R) {
         let domain = Name::from_str("incorrect.example.com.").unwrap();
         let search = vec![
             Name::from_str("bad.example.com.").unwrap(),
@@ -790,7 +759,7 @@ pub mod testing {
         let name_servers: Vec<NameServerConfig> =
             ResolverConfig::default().name_servers().to_owned();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::from_parts(Some(domain), search, name_servers),
             ResolverOpts {
                 // our name does have 2, the default should be fine, let's just narrow the test criteria a bit.
@@ -820,7 +789,7 @@ pub mod testing {
     /// Test large ndots with non-fqdn.
     pub fn large_ndots_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let domain = Name::from_str("incorrect.example.com.").unwrap();
         let search = vec![
@@ -830,7 +799,7 @@ pub mod testing {
         let name_servers: Vec<NameServerConfig> =
             ResolverConfig::default().name_servers().to_owned();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::from_parts(Some(domain), search, name_servers),
             ResolverOpts {
                 // matches kubernetes default
@@ -860,7 +829,7 @@ pub mod testing {
     /// Test domain search.
     pub fn domain_search_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         //env_logger::try_init().ok();
 
@@ -873,7 +842,7 @@ pub mod testing {
         let name_servers: Vec<NameServerConfig> =
             ResolverConfig::default().name_servers().to_owned();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::from_parts(Some(domain), search, name_servers),
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -901,7 +870,7 @@ pub mod testing {
     /// Test search lists.
     pub fn search_list_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let domain = Name::from_str("incorrect.example.com.").unwrap();
         let search = vec![
@@ -913,7 +882,7 @@ pub mod testing {
         let name_servers: Vec<NameServerConfig> =
             ResolverConfig::default().name_servers().to_owned();
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::from_parts(Some(domain), search, name_servers),
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -939,16 +908,10 @@ pub mod testing {
     }
 
     /// Test idna.
-    pub fn idna_test<E: Executor + Send + 'static, R: RuntimeProvider>(
-        mut exec: E,
-        handle: R::Handle,
-    ) {
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
-            ResolverConfig::default(),
-            ResolverOpts::default(),
-            handle,
-        )
-        .expect("failed to create resolver");
+    pub fn idna_test<E: Executor + Send + 'static, R: RuntimeProvider>(mut exec: E, handle: R) {
+        let resolver =
+            AsyncResolver::<R>::new(ResolverConfig::default(), ResolverOpts::default(), handle)
+                .expect("failed to create resolver");
 
         let response = exec
             .block_on(resolver.lookup_ip("中国.icom.museum."))
@@ -962,9 +925,9 @@ pub mod testing {
     /// Test ipv4 localhost.
     pub fn localhost_ipv4_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::default(),
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4thenIpv6,
@@ -988,9 +951,9 @@ pub mod testing {
     /// Test ipv6 localhost.
     pub fn localhost_ipv6_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             ResolverConfig::default(),
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv6thenIpv4,
@@ -1014,12 +977,12 @@ pub mod testing {
     /// Test ipv4 search with large ndots.
     pub fn search_ipv4_large_ndots_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let mut config = ResolverConfig::default();
         config.add_search(Name::from_str("example.com").unwrap());
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             config,
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -1044,12 +1007,12 @@ pub mod testing {
     /// Test ipv6 search with large ndots.
     pub fn search_ipv6_large_ndots_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let mut config = ResolverConfig::default();
         config.add_search(Name::from_str("example.com").unwrap());
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             config,
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -1074,12 +1037,12 @@ pub mod testing {
     /// Test ipv6 name parse fails.
     pub fn search_ipv6_name_parse_fails_test<E: Executor + Send + 'static, R: RuntimeProvider>(
         mut exec: E,
-        handle: R::Handle,
+        handle: R,
     ) {
         let mut config = ResolverConfig::default();
         config.add_search(Name::from_str("example.com").unwrap());
 
-        let resolver = AsyncResolver::<GenericConnection, GenericConnectionProvider<R>>::new(
+        let resolver = AsyncResolver::<R>::new(
             config,
             ResolverOpts {
                 ip_strategy: LookupIpStrategy::Ipv4Only,
@@ -1103,12 +1066,13 @@ pub mod testing {
 }
 #[cfg(test)]
 #[cfg(feature = "tokio-runtime")]
+#[allow(clippy::extra_unused_type_parameters)]
 mod tests {
     use proto::xfer::DnsRequest;
     use tokio::runtime::Runtime;
 
     use crate::config::{ResolverConfig, ResolverOpts};
-    use crate::name_server::{TokioConnection, TokioConnectionProvider, TokioRuntime};
+    use crate::name_server::{GenericConnection, TokioRuntimeProvider};
 
     use super::*;
 
@@ -1127,56 +1091,52 @@ mod tests {
         assert!(is_send_t::<ResolverOpts>());
         assert!(is_sync_t::<ResolverOpts>());
 
-        assert!(is_send_t::<
-            AsyncResolver<TokioConnection, TokioConnectionProvider>,
-        >());
-        assert!(is_sync_t::<
-            AsyncResolver<TokioConnection, TokioConnectionProvider>,
-        >());
+        assert!(is_send_t::<AsyncResolver<TokioRuntimeProvider>>());
+        assert!(is_sync_t::<AsyncResolver<TokioRuntimeProvider>>());
 
         assert!(is_send_t::<DnsRequest>());
-        assert!(is_send_t::<LookupIpFuture<TokioConnection, ResolveError>>());
-        assert!(is_send_t::<LookupFuture<TokioConnection, ResolveError>>());
+        assert!(is_send_t::<LookupIpFuture<GenericConnection, ResolveError>>());
+        assert!(is_send_t::<LookupFuture<GenericConnection, ResolveError>>());
     }
 
     #[test]
     fn test_lookup_google() {
         use super::testing::lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
-        let handle = TokioHandle::default();
-        lookup_test::<Runtime, TokioRuntime>(ResolverConfig::google(), io_loop, handle)
+        let handle = TokioRuntimeProvider::new();
+        lookup_test::<Runtime, TokioRuntimeProvider>(ResolverConfig::google(), io_loop, handle)
     }
 
     #[test]
     fn test_lookup_cloudflare() {
         use super::testing::lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
-        let handle = TokioHandle::default();
-        lookup_test::<Runtime, TokioRuntime>(ResolverConfig::cloudflare(), io_loop, handle)
+        let handle = TokioRuntimeProvider::new();
+        lookup_test::<Runtime, TokioRuntimeProvider>(ResolverConfig::cloudflare(), io_loop, handle)
     }
 
     #[test]
     fn test_lookup_quad9() {
         use super::testing::lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
-        let handle = TokioHandle::default();
-        lookup_test::<Runtime, TokioRuntime>(ResolverConfig::quad9(), io_loop, handle)
+        let handle = TokioRuntimeProvider::new();
+        lookup_test::<Runtime, TokioRuntimeProvider>(ResolverConfig::quad9(), io_loop, handle)
     }
 
     #[test]
     fn test_ip_lookup() {
         use super::testing::ip_lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
-        let handle = TokioHandle::default();
-        ip_lookup_test::<Runtime, TokioRuntime>(io_loop, handle)
+        let handle = TokioRuntimeProvider::new();
+        ip_lookup_test::<Runtime, TokioRuntimeProvider>(io_loop, handle)
     }
 
     #[test]
     fn test_ip_lookup_across_threads() {
         use super::testing::ip_lookup_across_threads_test;
         let _io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        ip_lookup_across_threads_test::<Runtime, TokioRuntime>(handle)
+        let handle = TokioRuntimeProvider::new();
+        ip_lookup_across_threads_test::<Runtime, TokioRuntimeProvider>(handle)
     }
 
     #[test]
@@ -1184,8 +1144,8 @@ mod tests {
     fn test_sec_lookup() {
         use super::testing::sec_lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        sec_lookup_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        sec_lookup_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
@@ -1193,8 +1153,8 @@ mod tests {
     fn test_sec_lookup_fails() {
         use super::testing::sec_lookup_fails_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        sec_lookup_fails_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        sec_lookup_fails_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
@@ -1204,121 +1164,118 @@ mod tests {
     fn test_system_lookup() {
         use super::testing::system_lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        system_lookup_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        system_lookup_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     #[ignore]
     // these appear to not work on CI, test on macos with `10.1.0.104  a.com`
     #[cfg(unix)]
+    #[cfg(feature = "system-config")]
     fn test_hosts_lookup() {
         use super::testing::hosts_lookup_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        hosts_lookup_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        hosts_lookup_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_fqdn() {
         use super::testing::fqdn_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        fqdn_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        fqdn_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_ndots() {
         use super::testing::ndots_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        ndots_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        ndots_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_large_ndots() {
         use super::testing::large_ndots_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        large_ndots_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        large_ndots_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_domain_search() {
         use super::testing::domain_search_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        domain_search_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        domain_search_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_search_list() {
         use super::testing::search_list_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        search_list_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        search_list_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_idna() {
         use super::testing::idna_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        idna_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        idna_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_localhost_ipv4() {
         use super::testing::localhost_ipv4_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        localhost_ipv4_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        localhost_ipv4_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_localhost_ipv6() {
         use super::testing::localhost_ipv6_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        localhost_ipv6_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        localhost_ipv6_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_search_ipv4_large_ndots() {
         use super::testing::search_ipv4_large_ndots_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        search_ipv4_large_ndots_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        search_ipv4_large_ndots_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_search_ipv6_large_ndots() {
         use super::testing::search_ipv6_large_ndots_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        search_ipv6_large_ndots_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        search_ipv6_large_ndots_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_search_ipv6_name_parse_fails() {
         use super::testing::search_ipv6_name_parse_fails_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
-        let handle = TokioHandle::default();
-        search_ipv6_name_parse_fails_test::<Runtime, TokioRuntime>(io_loop, handle);
+        let handle = TokioRuntimeProvider::new();
+        search_ipv6_name_parse_fails_test::<Runtime, TokioRuntimeProvider>(io_loop, handle);
     }
 
     #[test]
     fn test_build_names_onion() {
-        let handle = TokioHandle::default();
+        let handle = TokioRuntimeProvider::new();
         let mut config = ResolverConfig::default();
         config.add_search(Name::from_ascii("example.com.").unwrap());
         let resolver =
-            AsyncResolver::<GenericConnection, GenericConnectionProvider<TokioRuntime>>::new(
-                config,
-                ResolverOpts::default(),
-                handle,
-            )
-            .expect("failed to create resolver");
+            AsyncResolver::<TokioRuntimeProvider>::new(config, ResolverOpts::default(), handle)
+                .expect("failed to create resolver");
         let tor_address = [
             Name::from_ascii("2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion")
                 .unwrap(),

@@ -1,4 +1,4 @@
-// Copyright 2015-2020 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -20,26 +20,29 @@
     unreachable_pub
 )]
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    net::{IpAddr, SocketAddr},
+    ops::Deref,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use clap::{ArgGroup, Parser};
 use console::style;
 use tokio::task::JoinSet;
 
 use tokio::time::MissedTickBehavior;
-use trust_dns_client::rr::Record;
-use trust_dns_resolver::config::{
-    NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
+use trust_dns_client::rr::{Record, RecordData};
+use trust_dns_resolver::{
+    config::{NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts},
+    error::{ResolveError, ResolveErrorKind},
+    lookup::Lookup,
+    proto::rr::RecordType,
+    TokioAsyncResolver,
 };
-use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
-use trust_dns_resolver::lookup::Lookup;
-use trust_dns_resolver::proto::rr::RecordType;
-use trust_dns_resolver::TokioAsyncResolver;
 
 /// A CLI interface for the trust-dns-resolver.
 ///
@@ -142,7 +145,7 @@ struct Opts {
     interval: f32,
 }
 
-fn print_record(r: &Record) {
+fn print_record<D: RecordData, R: Deref<Target = Record<D>>>(r: &R) {
     print!(
         "\t{name} {ttl} {class} {ty}",
         name = style(r.name()).blue(),
@@ -165,7 +168,7 @@ fn print_ok(lookup: Lookup) {
     );
 
     for r in lookup.record_iter() {
-        print_record(r);
+        print_record(&r);
     }
 }
 

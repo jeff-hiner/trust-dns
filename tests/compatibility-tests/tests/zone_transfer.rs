@@ -38,6 +38,8 @@ macro_rules! assert_serial {
 #[test]
 #[allow(unused)]
 fn test_zone_transfer() {
+    use trust_dns_client::rr::rdata::A;
+
     let (process, port) = named_process();
     let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let conn = TcpClientConnection::new(socket).unwrap();
@@ -58,9 +60,15 @@ fn test_zone_transfer() {
         panic!("First answer was not an SOA record")
     };
 
-    assert_eq!(result[0].answers()[0].rr_type(), RecordType::SOA);
+    assert_eq!(result[0].answers()[0].record_type(), RecordType::SOA);
     assert_eq!(
-        result.last().unwrap().answers().last().unwrap().rr_type(),
+        result
+            .last()
+            .unwrap()
+            .answers()
+            .last()
+            .unwrap()
+            .record_type(),
         RecordType::SOA
     );
 
@@ -69,7 +77,7 @@ fn test_zone_transfer() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     client.create(record, name.clone()).expect("create failed");
 
@@ -84,6 +92,6 @@ fn test_zone_transfer() {
     assert_serial!(result.answers()[0], 20210102);
     assert_serial!(result.answers()[1], 20210101);
     assert_serial!(result.answers()[2], 20210102);
-    assert_eq!(result.answers()[3].rr_type(), RecordType::A);
+    assert_eq!(result.answers()[3].record_type(), RecordType::A);
     assert_serial!(result.answers()[4], 20210102);
 }

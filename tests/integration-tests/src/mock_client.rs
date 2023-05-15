@@ -1,22 +1,144 @@
-// Copyright 2015-2020 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::any::TypeId;
 use std::error::Error;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use futures::stream::{once, Stream};
-use futures::{future, Future};
+use futures::{future, AsyncRead, AsyncWrite, Future};
 
 use trust_dns_client::op::{Message, Query};
-use trust_dns_client::rr::{rdata::SOA, Name, RData, Record};
+use trust_dns_client::rr::rdata::{CNAME, SOA};
+use trust_dns_client::rr::{Name, RData, Record};
 use trust_dns_proto::error::ProtoError;
+use trust_dns_proto::tcp::DnsTcpStream;
+use trust_dns_proto::udp::DnsUdpSocket;
+#[cfg(feature = "dns-over-quic")]
+use trust_dns_proto::udp::QuicLocalAddr;
 use trust_dns_proto::xfer::{DnsHandle, DnsRequest, DnsResponse};
+use trust_dns_proto::TokioTime;
+use trust_dns_resolver::config::{NameServerConfig, ResolverOpts};
+use trust_dns_resolver::error::ResolveError;
+use trust_dns_resolver::name_server::{CreateConnection, RuntimeProvider};
+use trust_dns_resolver::TokioHandle;
+
+pub struct TcpPlaceholder;
+
+impl AsyncRead for TcpPlaceholder {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Poll::Ready(Ok(buf.len()))
+    }
+}
+
+impl AsyncWrite for TcpPlaceholder {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl DnsTcpStream for TcpPlaceholder {
+    type Time = TokioTime;
+}
+
+pub struct UdpPlaceholder;
+
+#[cfg(feature = "dns-over-quic")]
+impl QuicLocalAddr for UdpPlaceholder {
+    fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        Ok(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
+            9999,
+        ))
+    }
+}
+
+impl DnsUdpSocket for UdpPlaceholder {
+    type Time = TokioTime;
+
+    fn poll_recv_from(
+        &self,
+        _cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<(usize, SocketAddr)>> {
+        Poll::Ready(Ok((
+            buf.len(),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 77)), 1),
+        )))
+    }
+
+    fn poll_send_to(
+        &self,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+        _target: SocketAddr,
+    ) -> Poll<std::io::Result<usize>> {
+        Poll::Ready(Ok(buf.len()))
+    }
+}
+
+#[derive(Clone)]
+pub struct MockConnProvider<O: OnSend> {
+    pub on_send: O,
+}
+
+impl Default for MockConnProvider<DefaultOnSend> {
+    fn default() -> Self {
+        Self {
+            on_send: DefaultOnSend,
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)]
+impl<O: OnSend + Unpin> RuntimeProvider for MockConnProvider<O> {
+    type Handle = TokioHandle;
+    type Timer = TokioTime;
+    type Udp = UdpPlaceholder;
+    type Tcp = TcpPlaceholder;
+
+    fn create_handle(&self) -> Self::Handle {
+        TokioHandle::default()
+    }
+
+    fn connect_tcp(
+        &self,
+        _server_addr: SocketAddr,
+    ) -> Pin<Box<dyn Send + Future<Output = std::io::Result<Self::Tcp>>>> {
+        Box::pin(async { Ok(TcpPlaceholder) })
+    }
+
+    fn bind_udp(
+        &self,
+        _local_addr: SocketAddr,
+        _server_addr: SocketAddr,
+    ) -> Pin<Box<dyn Send + Future<Output = std::io::Result<Self::Udp>>>> {
+        Box::pin(async { Ok(UdpPlaceholder) })
+    }
+}
 
 #[derive(Clone)]
 pub struct MockClientHandle<O: OnSend, E> {
@@ -53,6 +175,25 @@ impl<O: OnSend, E> MockClientHandle<O, E> {
     }
 }
 
+impl<O: OnSend, E: Send + 'static> CreateConnection for MockClientHandle<O, E> {
+    fn new_connection<P: RuntimeProvider>(
+        runtime_provider: &P,
+        _config: &NameServerConfig,
+        _options: &ResolverOpts,
+    ) -> Box<dyn Future<Output = Result<Self, ResolveError>> + Send + Unpin + 'static> {
+        if TypeId::of::<P>() != TypeId::of::<MockConnProvider<O>>() {
+            panic!("Type Mismatched. Unsafe to cast")
+        }
+        // Safety: we have checked the type
+        let provider = unsafe { &*(runtime_provider as *const P as *const MockConnProvider<O>) };
+        println!("MockConnProvider::new_connection");
+        Box::new(future::ok(MockClientHandle::mock_on_send(
+            vec![],
+            provider.on_send.clone(),
+        )))
+    }
+}
+
 impl<O: OnSend + Unpin, E> DnsHandle for MockClientHandle<O, E>
 where
     E: From<ProtoError> + Error + Clone + Send + Unpin + 'static,
@@ -75,11 +216,11 @@ where
 }
 
 pub fn cname_record(name: Name, cname: Name) -> Record {
-    Record::from_rdata(name, 86400, RData::CNAME(cname))
+    Record::from_rdata(name, 86400, RData::CNAME(CNAME(cname)))
 }
 
 pub fn v4_record(name: Name, ip: Ipv4Addr) -> Record {
-    Record::from_rdata(name, 86400, RData::A(ip))
+    Record::from_rdata(name, 86400, RData::A(ip.into()))
 }
 
 pub fn soa_record(name: Name, mname: Name) -> Record {

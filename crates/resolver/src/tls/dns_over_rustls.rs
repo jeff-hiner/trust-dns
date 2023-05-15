@@ -8,6 +8,7 @@
 #![cfg(feature = "dns-over-rustls")]
 #![allow(dead_code)]
 
+use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -16,11 +17,12 @@ use futures_util::future::Future;
 use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 
 use proto::error::ProtoError;
-use proto::rustls::{tls_client_connect_with_bind_addr, TlsClientStream};
+use proto::rustls::tls_client_stream::tls_client_connect_with_future;
+use proto::rustls::TlsClientStream;
+use proto::tcp::DnsTcpStream;
 use proto::BufDnsStreamHandle;
 
 use crate::config::TlsClientConfig;
-use crate::name_server::RuntimeProvider;
 
 const ALPN_H2: &[u8] = b"h2";
 
@@ -54,20 +56,24 @@ lazy_static! {
 }
 
 #[allow(clippy::type_complexity)]
-pub(crate) fn new_tls_stream<R: RuntimeProvider>(
+pub(crate) fn new_tls_stream_with_future<S, F>(
+    future: F,
     socket_addr: SocketAddr,
-    bind_addr: Option<SocketAddr>,
     dns_name: String,
     client_config: Option<TlsClientConfig>,
 ) -> (
-    Pin<Box<dyn Future<Output = Result<TlsClientStream<R::Tcp>, ProtoError>> + Send>>,
+    Pin<Box<dyn Future<Output = Result<TlsClientStream<S>, ProtoError>> + Send>>,
     BufDnsStreamHandle,
-) {
+)
+where
+    S: DnsTcpStream,
+    F: Future<Output = io::Result<S>> + Send + Unpin + 'static,
+{
     let client_config = client_config.map_or_else(
         || CLIENT_CONFIG.clone(),
         |TlsClientConfig(client_config)| client_config,
     );
     let (stream, handle) =
-        tls_client_connect_with_bind_addr(socket_addr, bind_addr, dns_name, client_config);
+        tls_client_connect_with_future(future, socket_addr, dns_name, client_config);
     (Box::pin(stream), handle)
 }

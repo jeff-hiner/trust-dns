@@ -1,4 +1,4 @@
-// Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,32 +7,42 @@
 
 //! Lookup result from a resolution of ipv4 and ipv6 records with a Resolver.
 
-use std::cmp::min;
-use std::error::Error;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::pin::Pin;
-use std::slice::Iter;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::{
+    cmp::min,
+    error::Error,
+    pin::Pin,
+    slice::Iter,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
 
-use futures_util::stream::Stream;
-use futures_util::{future, future::Future, FutureExt};
+use futures_util::{
+    future::{self, Future},
+    stream::Stream,
+    FutureExt,
+};
 
-use proto::error::ProtoError;
-use proto::op::Query;
-use proto::rr::rdata;
-use proto::rr::{Name, RData, Record, RecordType};
-use proto::xfer::{DnsRequest, DnsRequestOptions, DnsResponse};
+use crate::{
+    caching_client::CachingClient,
+    dns_lru::MAX_TTL,
+    error::*,
+    lookup_ip::LookupIpIter,
+    name_server::{NameServerPool, RuntimeProvider},
+    proto::{
+        error::ProtoError,
+        op::Query,
+        rr::{
+            rdata::{self, A, AAAA, NS, PTR},
+            Name, RData, Record, RecordType,
+        },
+        xfer::{DnsRequest, DnsRequestOptions, DnsResponse},
+        DnsHandle, RetryDnsHandle,
+    },
+};
+
 #[cfg(feature = "dnssec")]
 use proto::DnssecDnsHandle;
-use proto::{DnsHandle, RetryDnsHandle};
-
-use crate::caching_client::CachingClient;
-use crate::dns_lru::MAX_TTL;
-use crate::error::*;
-use crate::lookup_ip::LookupIpIter;
-use crate::name_server::{ConnectionProvider, NameServerPool};
 
 /// Result of a DNS query when querying for any record type supported by the Trust-DNS Proto library.
 ///
@@ -175,19 +185,14 @@ impl Iterator for LookupIntoIter {
 /// Different lookup options for the lookup attempts and validation
 #[derive(Clone)]
 #[doc(hidden)]
-pub enum LookupEither<
-    C: DnsHandle<Error = ResolveError> + 'static,
-    P: ConnectionProvider<Conn = C> + 'static,
-> {
-    Retry(RetryDnsHandle<NameServerPool<C, P>>),
+pub enum LookupEither<P: RuntimeProvider + Send> {
+    Retry(RetryDnsHandle<NameServerPool<P>>),
     #[cfg(feature = "dnssec")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
-    Secure(DnssecDnsHandle<RetryDnsHandle<NameServerPool<C, P>>>),
+    Secure(DnssecDnsHandle<RetryDnsHandle<NameServerPool<P>>>),
 }
 
-impl<C: DnsHandle<Error = ResolveError> + Sync, P: ConnectionProvider<Conn = C>> DnsHandle
-    for LookupEither<C, P>
-{
+impl<P: RuntimeProvider> DnsHandle for LookupEither<P> {
     type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ResolveError>> + Send>>;
     type Error = ResolveError;
 
@@ -486,21 +491,15 @@ lookup_type!(
     ReverseLookupIter,
     ReverseLookupIntoIter,
     RData::PTR,
-    Name
+    PTR
 );
-lookup_type!(
-    Ipv4Lookup,
-    Ipv4LookupIter,
-    Ipv4LookupIntoIter,
-    RData::A,
-    Ipv4Addr
-);
+lookup_type!(Ipv4Lookup, Ipv4LookupIter, Ipv4LookupIntoIter, RData::A, A);
 lookup_type!(
     Ipv6Lookup,
     Ipv6LookupIter,
     Ipv6LookupIntoIter,
     RData::AAAA,
-    Ipv6Addr
+    AAAA
 );
 lookup_type!(
     MxLookup,
@@ -530,7 +529,7 @@ lookup_type!(
     RData::SOA,
     rdata::SOA
 );
-lookup_type!(NsLookup, NsLookupIter, NsLookupIntoIter, RData::NS, Name);
+lookup_type!(NsLookup, NsLookupIter, NsLookupIntoIter, RData::NS, NS);
 
 #[cfg(test)]
 pub mod tests {
@@ -571,7 +570,7 @@ pub mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::root(),
             86400,
-            RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+            RData::A(A::new(127, 0, 0, 1)),
         )]);
 
         let resp = DnsResponse::from_message(message).unwrap();
@@ -606,7 +605,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -626,7 +625,7 @@ pub mod tests {
                 .records()[0]
             )
             .unwrap()
-            .to_ip_addr()
+            .ip_addr()
             .unwrap(),
             Ipv4Addr::new(127, 0, 0, 1)
         );
@@ -643,7 +642,7 @@ pub mod tests {
             ))
             .unwrap()
             .into_iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -689,25 +688,19 @@ pub mod tests {
                 Record::from_rdata(
                     Name::from_str("www.example.com.").unwrap(),
                     80,
-                    RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+                    RData::A(A::new(127, 0, 0, 1)),
                 ),
                 Record::from_rdata(
                     Name::from_str("www.example.com.").unwrap(),
                     80,
-                    RData::A(Ipv4Addr::new(127, 0, 0, 2)),
+                    RData::A(A::new(127, 0, 0, 2)),
                 ),
             ]),
             index: 0,
         };
 
-        assert_eq!(
-            lookup.next().unwrap(),
-            RData::A(Ipv4Addr::new(127, 0, 0, 1))
-        );
-        assert_eq!(
-            lookup.next().unwrap(),
-            RData::A(Ipv4Addr::new(127, 0, 0, 2))
-        );
+        assert_eq!(lookup.next().unwrap(), RData::A(A::new(127, 0, 0, 1)));
+        assert_eq!(lookup.next().unwrap(), RData::A(A::new(127, 0, 0, 2)));
         assert_eq!(lookup.next(), None);
     }
 }

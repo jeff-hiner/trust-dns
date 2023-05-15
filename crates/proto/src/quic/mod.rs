@@ -18,6 +18,7 @@ pub use self::quic_client_stream::{
 };
 pub use self::quic_server::{QuicServer, QuicStreams};
 pub use self::quic_stream::{DoqErrorCode, QuicStream};
+pub use crate::udp::QuicLocalAddr;
 
 #[cfg(test)]
 mod tests;

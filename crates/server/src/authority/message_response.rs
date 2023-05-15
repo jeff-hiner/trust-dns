@@ -252,7 +252,7 @@ mod tests {
     use std::str::FromStr;
 
     use crate::proto::op::{Header, Message};
-    use crate::proto::rr::{DNSClass, Name, RData, Record};
+    use crate::proto::rr::{DNSClass, Name, RData, Record, RecordType};
     use crate::proto::serialize::binary::BinEncoder;
 
     use super::*;
@@ -265,8 +265,9 @@ mod tests {
             encoder.set_max_size(512);
 
             let answer = Record::new()
+                .set_record_type(RecordType::A)
                 .set_name(Name::from_str("www.example.com.").unwrap())
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34).into())))
                 .set_dns_class(DNSClass::NONE)
                 .clone();
 
@@ -301,8 +302,9 @@ mod tests {
             encoder.set_max_size(512);
 
             let answer = Record::new()
+                .set_record_type(RecordType::A)
                 .set_name(Name::from_str("www.example.com.").unwrap())
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34).into())))
                 .set_dns_class(DNSClass::NONE)
                 .clone();
 

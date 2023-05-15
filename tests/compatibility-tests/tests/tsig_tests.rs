@@ -50,6 +50,8 @@ where
 #[cfg(not(feature = "none"))]
 #[test]
 fn test_create() {
+    use trust_dns_client::rr::rdata::A;
+
     let (_process, port) = named_process();
     let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let conn = UdpClientConnection::new(socket).unwrap();
@@ -63,14 +65,14 @@ fn test_create() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     let result = client
         .create(record.clone(), origin.clone())
         .expect("create failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -85,7 +87,7 @@ fn test_create() {
 
     // will fail if already set and not the same value.
     let mut record = record;
-    record.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    record.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
 
     let result = client.create(record, origin).expect("create failed");
     assert_eq!(result.response_code(), ResponseCode::YXRRSet);

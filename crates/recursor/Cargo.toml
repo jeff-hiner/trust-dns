@@ -1,9 +1,5 @@
 [package]
 name = "trust-dns-recursor"
-version = "0.22.0"
-authors = ["Benjamin Fry <benjaminfry@me.com>"]
-edition = "2018"
-rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
@@ -18,23 +14,20 @@ Trust-DNS Recursor is a safe and secure DNS recursive resolver with DNSSEC suppo
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns-recursor"
-homepage = "https://trust-dns.org/"
-repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The
 # contents of this file are stored and indexed in the registry.
 readme = "README.md"
 
-# This is a small list of keywords used to categorize and search for this
-# package.
-keywords = ["DNS", "BIND", "dig", "named", "dnssec"]
-categories = ["network-programming"]
-
-# This is a string description of the license for this package. Currently
-# crates.io will validate the license provided against a whitelist of known
-# license identifiers from http://spdx.org/licenses/. Multiple licenses can
-# be separated with a `/`
-license = "MIT/Apache-2.0"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
 
 [badges]
 codecov = { repository = "bluejekyll/trust-dns", branch = "main", service = "github" }
@@ -72,28 +65,27 @@ name = "trust_dns_recursor"
 path = "src/lib.rs"
 
 [dependencies]
-async-trait = "0.1.43"
-async-recursion = "1.0.0"
+async-trait.workspace = true
+async-recursion.workspace = true
 #backtrace = { version = "0.3.50", optional = true }
-bytes = "1"
-cfg-if = "1"
-enum-as-inner = "0.5"
-futures-executor = { version = "0.3.5", default-features = false, features = ["std"] }
-futures-util = { version = "0.3.5", default-features = false, features = ["std"] }
-lru-cache = "0.1.2"
-parking_lot = "0.12"
-serde = { version = "1.0.114", features = ["derive"], optional = true }
-thiserror = "1.0.20"
-time = "0.3"
-tracing = "0.1.30"
-tokio = { version = "1.0", features = ["net"] }
-toml = "0.7"
-trust-dns-proto = { version = "0.22.0", path = "../proto" }
-trust-dns-resolver = { version = "0.22.0", path = "../resolver" }
+bytes.workspace = true
+cfg-if.workspace = true
+enum-as-inner.workspace = true
+futures-executor = { workspace = true, default-features = false, features = ["std"] }
+futures-util = { workspace = true, default-features = false, features = ["std"] }
+lru-cache.workspace = true
+parking_lot.workspace = true
+serde = { workspace = true, features = ["derive"], optional = true }
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["net"] }
+toml.workspace = true
+trust-dns-proto.workspace = true
+trust-dns-resolver = { workspace = true, features = ["tokio-runtime"] }
 
 [dev-dependencies]
-tokio = { version="1.0", features = ["macros", "rt"] }
-tracing-subscriber = { version = "0.3", features = ["std", "fmt", "env-filter"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+tracing-subscriber = { workspace = true, features = ["std", "fmt", "env-filter"] }
 
 [package.metadata.docs.rs]
 all-features = true

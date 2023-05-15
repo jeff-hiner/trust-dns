@@ -1,6 +1,5 @@
 #![cfg(feature = "sqlite")]
 
-use std::net::*;
 use std::str::FromStr;
 
 use rusqlite::*;
@@ -51,12 +50,9 @@ async fn test_search() {
         .unwrap();
     if !result.is_empty() {
         let record = result.iter().next().unwrap();
-        assert_eq!(record.rr_type(), RecordType::A);
+        assert_eq!(record.record_type(), RecordType::A);
         assert_eq!(record.dns_class(), DNSClass::IN);
-        assert_eq!(
-            record.data().unwrap(),
-            &RData::A(Ipv4Addr::new(93, 184, 216, 34))
-        );
+        assert_eq!(record.data().unwrap(), &RData::A(A::new(93, 184, 216, 34)));
     } else {
         panic!("expected a result"); // valid panic, in test
     }
@@ -84,12 +80,9 @@ async fn test_search_www() {
         .unwrap();
     if !result.is_empty() {
         let record = result.iter().next().unwrap();
-        assert_eq!(record.rr_type(), RecordType::A);
+        assert_eq!(record.record_type(), RecordType::A);
         assert_eq!(record.dns_class(), DNSClass::IN);
-        assert_eq!(
-            record.data().unwrap(),
-            &RData::A(Ipv4Addr::new(93, 184, 216, 34))
-        );
+        assert_eq!(record.data().unwrap(), &RData::A(A::new(93, 184, 216, 34)));
     } else {
         panic!("expected a result"); // valid panic, in test
     }
@@ -133,9 +126,11 @@ async fn test_authority() {
             .set_ttl(86400)
             .set_rr_type(RecordType::NS)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::NS(
-                Name::parse("a.iana-servers.net.", None).unwrap()
-            )))
+            .set_data(Some(RData::NS(NS(Name::parse(
+                "a.iana-servers.net.",
+                None
+            )
+            .unwrap()))))
             .clone()
     );
     assert_eq!(
@@ -145,9 +140,11 @@ async fn test_authority() {
             .set_ttl(86400)
             .set_rr_type(RecordType::NS)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::NS(
-                Name::parse("b.iana-servers.net.", None).unwrap()
-            )))
+            .set_data(Some(RData::NS(NS(Name::parse(
+                "b.iana-servers.net.",
+                None
+            )
+            .unwrap()))))
             .clone()
     );
 
@@ -202,7 +199,7 @@ async fn test_authority() {
             .set_ttl(86400)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
             .clone()
     );
 }
@@ -372,7 +369,7 @@ async fn test_prerequisites() {
             .set_ttl(0)
             .set_dns_class(DNSClass::IN)
             .set_rr_type(RecordType::A)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
             .clone()])
         .await
         .is_ok());
@@ -384,7 +381,7 @@ async fn test_prerequisites() {
                 .set_ttl(0)
                 .set_dns_class(DNSClass::CH)
                 .set_rr_type(RecordType::A)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
                 .clone()],)
             .await,
         Err(ResponseCode::FormErr)
@@ -397,7 +394,7 @@ async fn test_prerequisites() {
                 .set_ttl(0)
                 .set_dns_class(DNSClass::IN)
                 .set_rr_type(RecordType::A)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
                 .clone()],)
             .await,
         Err(ResponseCode::NXRRSet)
@@ -410,7 +407,7 @@ async fn test_prerequisites() {
                 .set_ttl(0)
                 .set_dns_class(DNSClass::IN)
                 .set_rr_type(RecordType::A)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
                 .clone()],)
             .await,
         Err(ResponseCode::NXRRSet)
@@ -431,7 +428,7 @@ async fn test_pre_scan() {
                 .set_ttl(86400)
                 .set_rr_type(RecordType::A)
                 .set_dns_class(DNSClass::IN)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
                 .clone()],)
             .await,
         Err(ResponseCode::NotZone)
@@ -479,7 +476,7 @@ async fn test_pre_scan() {
             .set_ttl(86400)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
             .clone()])
         .await
         .is_ok());
@@ -501,7 +498,7 @@ async fn test_pre_scan() {
                 .set_ttl(86400)
                 .set_rr_type(RecordType::A)
                 .set_dns_class(DNSClass::ANY)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
                 .clone()],)
             .await,
         Err(ResponseCode::FormErr)
@@ -513,7 +510,7 @@ async fn test_pre_scan() {
                 .set_ttl(0)
                 .set_rr_type(RecordType::A)
                 .set_dns_class(DNSClass::ANY)
-                .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+                .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
                 .clone()],)
             .await,
         Err(ResponseCode::FormErr)
@@ -627,7 +624,7 @@ async fn test_pre_scan() {
             .set_ttl(0)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::NONE)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
             .clone()])
         .await
         .is_ok());
@@ -668,14 +665,14 @@ async fn test_update() {
             .set_ttl(86400)
             .set_rr_type(RecordType::A)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+            .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
             .clone(),
         Record::new()
             .set_name(www_name.clone())
             .set_ttl(86400)
             .set_rr_type(RecordType::AAAA)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::AAAA(Ipv6Addr::new(
+            .set_data(Some(RData::AAAA(AAAA::new(
                 0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
             ))))
             .clone(),
@@ -719,7 +716,7 @@ async fn test_update() {
         .set_ttl(86400)
         .set_rr_type(RecordType::A)
         .set_dns_class(DNSClass::IN)
-        .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+        .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
         .clone()];
     assert!(authority
         .update_records(add_record, true,)
@@ -745,7 +742,7 @@ async fn test_update() {
         .set_ttl(86400)
         .set_rr_type(RecordType::A)
         .set_dns_class(DNSClass::IN)
-        .set_data(Some(RData::A(Ipv4Addr::new(10, 0, 0, 1))))
+        .set_data(Some(RData::A(A::new(10, 0, 0, 1))))
         .clone()];
     assert!(authority
         .update_records(add_www_record, true,)
@@ -780,7 +777,7 @@ async fn test_update() {
         .set_ttl(86400)
         .set_rr_type(RecordType::A)
         .set_dns_class(DNSClass::NONE)
-        .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 24))))
+        .set_data(Some(RData::A(A::new(93, 184, 216, 24))))
         .clone()];
     assert!(authority
         .update_records(del_record, true,)
@@ -803,7 +800,7 @@ async fn test_update() {
         .set_ttl(86400)
         .set_rr_type(RecordType::A)
         .set_dns_class(DNSClass::NONE)
-        .set_data(Some(RData::A(Ipv4Addr::new(10, 0, 0, 1))))
+        .set_data(Some(RData::A(A::new(10, 0, 0, 1))))
         .clone()];
     assert!(authority
         .update_records(del_record, true,)
@@ -854,7 +851,7 @@ async fn test_update() {
             .set_ttl(86400)
             .set_rr_type(RecordType::AAAA)
             .set_dns_class(DNSClass::IN)
-            .set_data(Some(RData::AAAA(Ipv6Addr::new(
+            .set_data(Some(RData::AAAA(AAAA::new(
                 0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
             ))))
             .clone(),
@@ -907,7 +904,7 @@ async fn test_update() {
 #[tokio::test]
 #[allow(clippy::uninlined_format_args)]
 async fn test_zone_signing() {
-    use trust_dns_proto::rr::dnssec::rdata::DNSSECRData;
+    use trust_dns_proto::rr::dnssec::rdata::RRSIG;
 
     let authority = create_secure_example();
 
@@ -921,7 +918,9 @@ async fn test_zone_signing() {
         .unwrap();
 
     assert!(
-        results.iter().any(|r| r.rr_type() == RecordType::DNSKEY),
+        results
+            .iter()
+            .any(|r| r.record_type() == RecordType::DNSKEY),
         "must contain a DNSKEY"
     );
 
@@ -935,10 +934,10 @@ async fn test_zone_signing() {
         .unwrap();
 
     for record in &results {
-        if record.rr_type() == RecordType::RRSIG {
+        if record.record_type() == RecordType::RRSIG {
             continue;
         }
-        if record.rr_type() == RecordType::DNSKEY {
+        if record.record_type() == RecordType::DNSKEY {
             continue;
         }
 
@@ -955,13 +954,15 @@ async fn test_zone_signing() {
         assert!(
             inner_results
                 .iter()
-                .any(|r| r.rr_type() == RecordType::RRSIG
-                    && r.name() == record.name()
-                    && if let RData::DNSSEC(DNSSECRData::SIG(ref rrsig)) = *r.data().unwrap() {
-                        rrsig.type_covered() == record.rr_type()
-                    } else {
-                        false
-                    }),
+                .filter_map(|r| {
+                    match r.record_type() {
+                        RecordType::RRSIG if r.name() == record.name() => {
+                            r.data().and_then(RRSIG::try_borrow)
+                        }
+                        _ => None,
+                    }
+                })
+                .any(|rrsig| rrsig.type_covered() == record.record_type()),
             "record type not covered: {:?}",
             record
         );
@@ -1004,12 +1005,12 @@ async fn test_journal() {
     let new_record = Record::new()
         .set_name(new_name.clone())
         .set_record_type(RecordType::A)
-        .set_data(Some(RData::A(Ipv4Addr::new(10, 11, 12, 13))))
+        .set_data(Some(RData::A(A::new(10, 11, 12, 13))))
         .clone();
     let delete_record = Record::new()
         .set_name(delete_name.clone())
         .set_record_type(RecordType::A)
-        .set_data(Some(RData::A(Ipv4Addr::new(93, 184, 216, 34))))
+        .set_data(Some(RData::A(A::new(93, 184, 216, 34))))
         .set_dns_class(DNSClass::NONE)
         .clone();
     authority

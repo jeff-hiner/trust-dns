@@ -1,33 +1,41 @@
-// Copyright 2015-2019 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Duration;
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use futures_util::ready;
-use futures_util::stream::{Stream, StreamExt};
+use futures_util::{
+    ready,
+    stream::{Stream, StreamExt},
+};
 use rand;
 use tracing::debug;
-use trust_dns_proto::op::Edns;
 
-use crate::client::Signer;
-use crate::error::*;
-use crate::proto::error::{ProtoError, ProtoErrorKind};
-use crate::proto::op::{update_message, Message, MessageType, OpCode, Query};
-use crate::proto::xfer::{
-    BufDnsStreamHandle, DnsClientStream, DnsExchange, DnsExchangeBackground, DnsExchangeSend,
-    DnsHandle, DnsMultiplexer, DnsRequest, DnsRequestOptions, DnsRequestSender, DnsResponse,
+use crate::{
+    client::Signer,
+    error::*,
+    op::{Message, MessageType, OpCode, Query},
+    proto::{
+        error::{ProtoError, ProtoErrorKind},
+        op::{update_message, Edns},
+        xfer::{
+            BufDnsStreamHandle, DnsClientStream, DnsExchange, DnsExchangeBackground,
+            DnsExchangeSend, DnsHandle, DnsMultiplexer, DnsRequest, DnsRequestOptions,
+            DnsRequestSender, DnsResponse,
+        },
+        TokioTime,
+    },
+    rr::{rdata::SOA, DNSClass, Name, RData, Record, RecordSet, RecordType},
 };
-use crate::proto::TokioTime;
-use crate::rr::rdata::SOA;
-use crate::rr::{DNSClass, Name, RData, Record, RecordSet, RecordType};
 
 /// A DNS Client implemented over futures-rs.
 ///
@@ -770,7 +778,7 @@ impl<R> ClientStreamXfrState<R> {
             } => {
                 let soa_count = answers
                     .iter()
-                    .filter(|a| a.rr_type() == RecordType::SOA)
+                    .filter(|a| a.record_type() == RecordType::SOA)
                     .count();
                 match soa_count {
                     0 => {
@@ -782,7 +790,7 @@ impl<R> ClientStreamXfrState<R> {
                     }
                     1 => {
                         *self = Ended;
-                        match answers.last().map(|r| r.rr_type()) {
+                        match answers.last().map(|r| r.record_type()) {
                             Some(RecordType::SOA) => Ok(()),
                             _ => Err(ClientErrorKind::Message(
                                 "invalid zone transfer, contains trailing records",
@@ -806,7 +814,7 @@ impl<R> ClientStreamXfrState<R> {
             } => {
                 let even = answers
                     .iter()
-                    .fold(even, |even, a| even ^ (a.rr_type() == RecordType::SOA));
+                    .fold(even, |even, a| even ^ (a.record_type() == RecordType::SOA));
                 if even {
                     if let Some(serial) = get_serial(answers.last().unwrap()) {
                         if serial == expected_serial {
@@ -855,7 +863,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::rr::rdata::soa::SOA;
+    use crate::rr::rdata::{A, SOA};
     use futures_util::stream::iter;
     use ClientStreamXfrState::*;
 
@@ -872,8 +880,8 @@ mod tests {
         Record::from_rdata(Name::from_ascii("example.com.").unwrap(), 600, soa)
     }
 
-    fn a_record(ip: u32) -> Record {
-        let a = RData::A(ip.into());
+    fn a_record(ip: u8) -> Record {
+        let a = RData::A(A::new(0, 0, 0, ip));
         Record::from_rdata(Name::from_ascii("www.example.com.").unwrap(), 600, a)
     }
 
@@ -1078,7 +1086,6 @@ mod tests {
         use crate::proto::iocompat::AsyncIoTokioAsStd;
         use crate::rr::{DNSClass, Name, RData, RecordType};
         use crate::tcp::TcpClientStream;
-        use std::net::Ipv4Addr;
         use std::str::FromStr;
         use tokio::net::TcpStream as TokioTcpStream;
 
@@ -1111,7 +1118,7 @@ mod tests {
 
         // validate it's what we expected
         if let Some(RData::A(addr)) = message_returned.answers()[0].data() {
-            assert_eq!(*addr, Ipv4Addr::new(93, 184, 216, 34));
+            assert_eq!(*addr, A::new(93, 184, 216, 34));
         }
 
         let message_parsed = Message::from_vec(&buffer)
@@ -1119,7 +1126,7 @@ mod tests {
 
         // validate it's what we expected
         if let Some(RData::A(addr)) = message_parsed.answers()[0].data() {
-            assert_eq!(*addr, Ipv4Addr::new(93, 184, 216, 34));
+            assert_eq!(*addr, A::new(93, 184, 216, 34));
         }
     }
 }

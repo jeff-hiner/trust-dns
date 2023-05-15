@@ -1,4 +1,4 @@
-// Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,36 +7,45 @@
 
 //! Caching related functionality for the Resolver.
 
-use std::borrow::Cow;
-use std::error::Error;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    borrow::Cow,
+    error::Error,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 use futures_util::future::Future;
 
-use proto::error::ProtoError;
-use proto::op::{Query, ResponseCode};
-use proto::rr::domain::usage::{
-    ResolverUsage, DEFAULT, INVALID, IN_ADDR_ARPA_127, IP6_ARPA_1, LOCAL,
-    LOCALHOST as LOCALHOST_usage, ONION,
+use crate::{
+    dns_lru::{self, DnsLru, TtlConfig},
+    error::{ResolveError, ResolveErrorKind},
+    lookup::Lookup,
+    proto::{
+        error::ProtoError,
+        op::{Query, ResponseCode},
+        rr::{
+            domain::usage::{
+                ResolverUsage, DEFAULT, INVALID, IN_ADDR_ARPA_127, IP6_ARPA_1, LOCAL,
+                LOCALHOST as LOCALHOST_usage, ONION,
+            },
+            rdata::{A, AAAA, CNAME, PTR, SOA},
+            resource::RecordRef,
+            DNSClass, Name, RData, Record, RecordType,
+        },
+        xfer::{DnsHandle, DnsRequestOptions, DnsResponse, FirstAnswer},
+    },
 };
-use proto::rr::{DNSClass, Name, RData, Record, RecordType};
-use proto::xfer::{DnsHandle, DnsRequestOptions, DnsResponse, FirstAnswer};
-
-use crate::dns_lru::DnsLru;
-use crate::dns_lru::{self, TtlConfig};
-use crate::error::*;
-use crate::lookup::Lookup;
 
 const MAX_QUERY_DEPTH: u8 = 8; // arbitrarily chosen number...
 
 lazy_static! {
-    static ref LOCALHOST: RData = RData::PTR(Name::from_ascii("localhost.").unwrap());
-    static ref LOCALHOST_V4: RData = RData::A(Ipv4Addr::new(127, 0, 0, 1));
-    static ref LOCALHOST_V6: RData = RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
+    static ref LOCALHOST: RData = RData::PTR(PTR(Name::from_ascii("localhost.").unwrap()));
+    static ref LOCALHOST_V4: RData = RData::A(A::new(127, 0, 0, 1));
+    static ref LOCALHOST_V6: RData = RData::AAAA(AAAA::new(0, 0, 0, 0, 0, 0, 0, 1));
 }
 
 struct DepthTracker {
@@ -268,7 +277,7 @@ where
         is_dnssec: bool,
         valid_nsec: bool,
         query: Query,
-        soa: Option<Record>,
+        soa: Option<Record<SOA>>,
         negative_ttl: Option<u32>,
         response_code: ResponseCode,
         trusted: bool,
@@ -309,7 +318,7 @@ where
         const INITIAL_TTL: u32 = dns_lru::MAX_TTL;
 
         // need to capture these before the subsequent and destructive record processing
-        let soa = response.soa().cloned();
+        let soa = response.soa().as_ref().map(RecordRef::to_owned);
         let negative_ttl = response.negative_ttl();
         let response_code = response.response_code();
 
@@ -333,10 +342,10 @@ where
                         (Cow::Borrowed(query.name()), INITIAL_TTL, false),
                         |(search_name, cname_ttl, was_cname), r| {
                             match r.data() {
-                                Some(RData::CNAME(ref cname)) => {
+                                Some(RData::CNAME(CNAME(ref cname))) => {
                                     // take the minimum TTL of the cname_ttl and the next record in the chain
                                     let ttl = cname_ttl.min(r.ttl());
-                                    debug_assert_eq!(r.rr_type(), RecordType::CNAME);
+                                    debug_assert_eq!(r.record_type(), RecordType::CNAME);
                                     if search_name.as_ref() == r.name() {
                                         return (Cow::Owned(cname.clone()), ttl, true);
                                     }
@@ -344,7 +353,7 @@ where
                                 Some(RData::SRV(ref srv)) => {
                                     // take the minimum TTL of the cname_ttl and the next record in the chain
                                     let ttl = cname_ttl.min(r.ttl());
-                                    debug_assert_eq!(r.rr_type(), RecordType::SRV);
+                                    debug_assert_eq!(r.record_type(), RecordType::SRV);
 
                                     // the search name becomes the srv.target
                                     return (Cow::Owned(srv.target().clone()), ttl, true);
@@ -381,25 +390,25 @@ where
                     if query.query_class() == r.dns_class() {
                         // standard evaluation, it's an any type or it's the requested type and the search_name matches
                         #[allow(clippy::suspicious_operation_groupings)]
-                        if (query.query_type().is_any() || query.query_type() == r.rr_type())
+                        if (query.query_type().is_any() || query.query_type() == r.record_type())
                             && (search_name.as_ref() == r.name() || query.name() == r.name())
                         {
                             found_name = true;
                             return Some((r, ttl));
                         }
                         // CNAME evaluation, the record is from the CNAME lookup chain.
-                        if client.preserve_intermediates && r.rr_type() == RecordType::CNAME {
+                        if client.preserve_intermediates && r.record_type() == RecordType::CNAME {
                             return Some((r, ttl));
                         }
                         // srv evaluation, it's an srv lookup and the srv_search_name/target matches this name
                         //    and it's an IP
                         if query.query_type().is_srv()
-                            && r.rr_type().is_ip_addr()
+                            && r.record_type().is_ip_addr()
                             && search_name.as_ref() == r.name()
                         {
                             found_name = true;
                             Some((r, ttl))
-                        } else if query.query_type().is_ns() && r.rr_type().is_ip_addr() {
+                        } else if query.query_type().is_ns() && r.record_type().is_ip_addr() {
                             Some((r, ttl))
                         } else {
                             None
@@ -499,6 +508,7 @@ mod tests {
     use proto::op::{Message, Query};
     use proto::rr::rdata::SRV;
     use proto::rr::{Name, Record};
+    use trust_dns_proto::rr::rdata::NS;
 
     use super::*;
     use crate::lookup_ip::tests::*;
@@ -539,7 +549,7 @@ mod tests {
                 Record::from_rdata(
                     query.name().clone(),
                     u32::max_value(),
-                    RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+                    RData::A(A::new(127, 0, 0, 1)),
                 ),
                 u32::max_value(),
             )],
@@ -559,7 +569,7 @@ mod tests {
 
         assert_eq!(
             ips.iter().cloned().collect::<Vec<_>>(),
-            vec![RData::A(Ipv4Addr::new(127, 0, 0, 1))]
+            vec![RData::A(A::new(127, 0, 0, 1))]
         );
     }
 
@@ -580,7 +590,7 @@ mod tests {
 
         assert_eq!(
             ips.iter().cloned().collect::<Vec<_>>(),
-            vec![RData::A(Ipv4Addr::new(127, 0, 0, 1))]
+            vec![RData::A(A::new(127, 0, 0, 1))]
         );
 
         // next should come from cache...
@@ -597,7 +607,7 @@ mod tests {
 
         assert_eq!(
             ips.iter().cloned().collect::<Vec<_>>(),
-            vec![RData::A(Ipv4Addr::new(127, 0, 0, 1))]
+            vec![RData::A(A::new(127, 0, 0, 1))]
         );
     }
 
@@ -611,7 +621,7 @@ mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
-            RData::CNAME(Name::from_str("actual.example.com.").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("actual.example.com.").unwrap())),
         )]);
         Ok(DnsResponse::from_message(message).unwrap())
     }
@@ -646,7 +656,7 @@ mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
-            RData::NS(Name::from_str("www.example.com.").unwrap()),
+            RData::NS(NS(Name::from_str("www.example.com.").unwrap())),
         )]);
         Ok(DnsResponse::from_message(message).unwrap())
     }
@@ -668,7 +678,9 @@ mod tests {
 
         assert_eq!(
             ips.iter().cloned().collect::<Vec<_>>(),
-            vec![RData::CNAME(Name::from_str("actual.example.com.").unwrap())]
+            vec![RData::CNAME(CNAME(
+                Name::from_str("actual.example.com.").unwrap()
+            ))]
         );
     }
 
@@ -720,18 +732,18 @@ mod tests {
         message.add_answer(Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
-            RData::CNAME(Name::from_str("actual.example.com.").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("actual.example.com.").unwrap())),
         ));
         message.insert_additionals(vec![
             Record::from_rdata(
                 Name::from_str("actual.example.com.").unwrap(),
                 86400,
-                RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+                RData::A(A::new(127, 0, 0, 1)),
             ),
             Record::from_rdata(
                 Name::from_str("actual.example.com.").unwrap(),
                 86400,
-                RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                RData::AAAA(AAAA::new(0, 0, 0, 0, 0, 0, 0, 1)),
             ),
         ]);
 
@@ -761,8 +773,8 @@ mod tests {
                     443,
                     Name::from_str("www.example.com.").unwrap(),
                 )),
-                RData::A(Ipv4Addr::new(127, 0, 0, 1)),
-                RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                RData::A(A::new(127, 0, 0, 1)),
+                RData::AAAA(AAAA::new(0, 0, 0, 0, 0, 0, 0, 1)),
             ]
         );
     }
@@ -824,18 +836,18 @@ mod tests {
         message.add_answer(Record::from_rdata(
             Name::from_str("www.example.com.").unwrap(),
             86400,
-            RData::CNAME(Name::from_str("actual.example.com.").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("actual.example.com.").unwrap())),
         ));
         message.insert_additionals(vec![
             Record::from_rdata(
                 Name::from_str("actual.example.com.").unwrap(),
                 86400,
-                RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+                RData::A(A::new(127, 0, 0, 1)),
             ),
             Record::from_rdata(
                 Name::from_str("actual.example.com.").unwrap(),
                 86400,
-                RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                RData::AAAA(AAAA::new(0, 0, 0, 0, 0, 0, 0, 1)),
             ),
         ]);
 
@@ -856,9 +868,9 @@ mod tests {
         assert_eq!(
             ips.iter().cloned().collect::<Vec<_>>(),
             vec![
-                RData::NS(Name::from_str("www.example.com.").unwrap()),
-                RData::A(Ipv4Addr::new(127, 0, 0, 1)),
-                RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                RData::NS(NS(Name::from_str("www.example.com.").unwrap())),
+                RData::A(A::new(127, 0, 0, 1)),
+                RData::AAAA(AAAA::new(0, 0, 0, 0, 0, 0, 0, 1)),
             ]
         );
     }
@@ -872,12 +884,12 @@ mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::from_str("ttl.example.com.").unwrap(),
             first,
-            RData::CNAME(Name::from_str("actual.example.com.").unwrap()),
+            RData::CNAME(CNAME(Name::from_str("actual.example.com.").unwrap())),
         )]);
         message.insert_additionals(vec![Record::from_rdata(
             Name::from_str("actual.example.com.").unwrap(),
             second,
-            RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+            RData::A(A::new(127, 0, 0, 1)),
         )]);
 
         let records = CachingClient::handle_noerror(
@@ -1014,7 +1026,7 @@ mod tests {
         message.add_answer(Record::from_rdata(
             Name::from_str("www.example.local.").unwrap(),
             86400,
-            RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+            RData::A(A::new(127, 0, 0, 1)),
         ));
 
         let client = mock(vec![

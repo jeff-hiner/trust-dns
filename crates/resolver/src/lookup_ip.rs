@@ -10,7 +10,7 @@
 //! At it's heart LookupIp uses Lookup for performing all lookups. It is unlike other standard lookups in that there are customizations around A and AAAA resolutions.
 
 use std::error::Error;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -82,8 +82,8 @@ impl<'i> Iterator for LookupIpIter<'i> {
     fn next(&mut self) -> Option<Self::Item> {
         let iter: &mut _ = &mut self.0;
         iter.filter_map(|rdata| match *rdata {
-            RData::A(ip) => Some(IpAddr::from(ip)),
-            RData::AAAA(ip) => Some(IpAddr::from(ip)),
+            RData::A(ip) => Some(IpAddr::from(Ipv4Addr::from(ip))),
+            RData::AAAA(ip) => Some(IpAddr::from(Ipv6Addr::from(ip))),
             _ => None,
         })
         .next()
@@ -110,8 +110,8 @@ impl Iterator for LookupIpIntoIter {
     fn next(&mut self) -> Option<Self::Item> {
         let iter: &mut _ = &mut self.0;
         iter.filter_map(|rdata| match rdata {
-            RData::A(ip) => Some(IpAddr::from(ip)),
-            RData::AAAA(ip) => Some(IpAddr::from(ip)),
+            RData::A(ip) => Some(IpAddr::from(Ipv4Addr::from(ip))),
+            RData::AAAA(ip) => Some(IpAddr::from(Ipv6Addr::from(ip))),
             _ => None,
         })
         .next()
@@ -487,7 +487,7 @@ pub mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::root(),
             86400,
-            RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+            RData::A(Ipv4Addr::new(127, 0, 0, 1).into()),
         )]);
 
         let resp = DnsResponse::from_message(message).unwrap();
@@ -501,7 +501,7 @@ pub mod tests {
         message.insert_answers(vec![Record::from_rdata(
             Name::root(),
             86400,
-            RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+            RData::AAAA(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1).into()),
         )]);
 
         let resp = DnsResponse::from_message(message).unwrap();
@@ -534,7 +534,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -551,7 +551,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)]
         );
@@ -570,7 +570,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![
                 IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -588,7 +588,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]
         );
@@ -603,7 +603,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]
         );
@@ -618,7 +618,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))]
         );
@@ -633,7 +633,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))]
         );
@@ -651,7 +651,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)]
         );
@@ -666,7 +666,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -681,7 +681,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -699,7 +699,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv4Addr::new(127, 0, 0, 1)]
         );
@@ -714,7 +714,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)]
         );
@@ -729,7 +729,7 @@ pub mod tests {
             ))
             .unwrap()
             .iter()
-            .map(|r| r.to_ip_addr().unwrap())
+            .map(|r| r.ip_addr().unwrap())
             .collect::<Vec<IpAddr>>(),
             vec![Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)]
         );

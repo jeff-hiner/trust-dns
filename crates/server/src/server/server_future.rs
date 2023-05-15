@@ -71,7 +71,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                     let message = match message {
                         Err(e) => {
                             warn!("error receiving message on udp_socket: {}", e);
-                            break;
+                            continue;
                         }
                         Ok(message) => message,
                     };
@@ -533,14 +533,15 @@ impl<T: RequestHandler> ServerFuture<T> {
         // TODO: need to set a timeout between requests.
         _timeout: Duration,
         certificate_and_key: (Vec<Certificate>, PrivateKey),
-        dns_hostname: String,
+        dns_hostname: Option<String>,
     ) -> io::Result<()> {
         use tokio_rustls::TlsAcceptor;
 
         use crate::proto::rustls::tls_server;
         use crate::server::https_handler::h2_handler;
 
-        let dns_hostname: Arc<str> = Arc::from(dns_hostname);
+        let dns_hostname: Option<Arc<str>> = dns_hostname.map(|n| n.into());
+
         let handler = self.handler.clone();
         debug!("registered https: {listener:?}");
 
@@ -627,12 +628,13 @@ impl<T: RequestHandler> ServerFuture<T> {
         // TODO: need to set a timeout between requests.
         _timeout: Duration,
         certificate_and_key: (Vec<Certificate>, PrivateKey),
-        dns_hostname: String,
+        dns_hostname: Option<String>,
     ) -> io::Result<()> {
         use crate::proto::quic::QuicServer;
         use crate::server::quic_handler::quic_handler;
 
-        let dns_hostname: Arc<str> = Arc::from(dns_hostname);
+        let dns_hostname: Option<Arc<str>> = dns_hostname.map(|n| n.into());
+
         let handler = self.handler.clone();
 
         debug!("registered quic: {:?}", socket);

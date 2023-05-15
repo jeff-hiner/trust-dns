@@ -17,39 +17,15 @@ use futures_util::future::FutureExt;
 use pin_utils::pin_mut;
 use socket2::{Domain, Protocol, Socket, Type};
 use trust_dns_resolver::proto::tcp::{Connect, DnsTcpStream};
-use trust_dns_resolver::proto::udp::UdpSocket;
+use trust_dns_resolver::proto::udp::{DnsUdpSocket, QuicLocalAddr, UdpSocket};
 
 use crate::time::AsyncStdTime;
 
 pub struct AsyncStdUdpSocket(async_std::net::UdpSocket);
 
 #[async_trait]
-impl UdpSocket for AsyncStdUdpSocket {
+impl DnsUdpSocket for AsyncStdUdpSocket {
     type Time = AsyncStdTime;
-
-    async fn connect_with_bind(_addr: SocketAddr, bind_addr: SocketAddr) -> io::Result<Self> {
-        let socket = async_std::net::UdpSocket::bind(bind_addr).await?;
-
-        // TODO: research connect more, it appears to break receive tests on UDP
-        // socket.connect(addr).await?;
-        Ok(Self(socket))
-    }
-
-    async fn connect(addr: SocketAddr) -> io::Result<Self> {
-        let bind_addr: SocketAddr = match addr {
-            SocketAddr::V4(_addr) => (Ipv4Addr::UNSPECIFIED, 0).into(),
-            SocketAddr::V6(_addr) => (Ipv6Addr::UNSPECIFIED, 0).into(),
-        };
-
-        Self::connect_with_bind(addr, bind_addr).await
-    }
-
-    async fn bind(addr: SocketAddr) -> io::Result<Self> {
-        async_std::net::UdpSocket::bind(addr)
-            .await
-            .map(AsyncStdUdpSocket)
-    }
-
     fn poll_recv_from(
         &self,
         cx: &mut Context<'_>,
@@ -79,6 +55,38 @@ impl UdpSocket for AsyncStdUdpSocket {
 
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> io::Result<usize> {
         self.0.send_to(buf, target).await
+    }
+}
+
+impl QuicLocalAddr for AsyncStdUdpSocket {
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.0.local_addr()
+    }
+}
+
+#[async_trait]
+impl UdpSocket for AsyncStdUdpSocket {
+    async fn connect(addr: SocketAddr) -> io::Result<Self> {
+        let bind_addr: SocketAddr = match addr {
+            SocketAddr::V4(_addr) => (Ipv4Addr::UNSPECIFIED, 0).into(),
+            SocketAddr::V6(_addr) => (Ipv6Addr::UNSPECIFIED, 0).into(),
+        };
+
+        Self::connect_with_bind(addr, bind_addr).await
+    }
+
+    async fn connect_with_bind(_addr: SocketAddr, bind_addr: SocketAddr) -> io::Result<Self> {
+        let socket = async_std::net::UdpSocket::bind(bind_addr).await?;
+
+        // TODO: research connect more, it appears to break receive tests on UDP
+        // socket.connect(addr).await?;
+        Ok(Self(socket))
+    }
+
+    async fn bind(addr: SocketAddr) -> io::Result<Self> {
+        async_std::net::UdpSocket::bind(addr)
+            .await
+            .map(AsyncStdUdpSocket)
     }
 }
 

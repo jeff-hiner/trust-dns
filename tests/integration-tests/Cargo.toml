@@ -1,9 +1,6 @@
 [package]
 name = "trust-dns-integration"
-version = "0.22.0"
-authors = ["Benjamin Fry <benjaminfry@me.com>"]
-edition = "2018"
-rust-version = "1.60.0"
+publish = false
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
@@ -13,23 +10,20 @@ Trust-DNS integration testing library.
 
 # These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns"
-homepage = "https://trust-dns.org/"
-repository = "https://github.com/bluejekyll/trust-dns"
 
 # This points to a file in the repository (relative to this Cargo.toml). The
 # contents of this file are stored and indexed in the registry.
 readme = "../README.md"
 
-# This is a small list of keywords used to categorize and search for this
-# package.
-keywords = ["DNS", "BIND", "dig", "named", "dnssec"]
-categories = ["network-programming"]
-
-# This is a string description of the license for this package. Currently
-# crates.io will validate the license provided against a whitelist of known
-# license identifiers from http://spdx.org/licenses/. Multiple licenses can
-# be separated with a `/`
-license = "MIT/Apache-2.0"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
 
 [badges]
 #github-actions = { repository = "bluejekyll/trust-dns", branch = "main", workflow = "test" }
@@ -71,24 +65,24 @@ dns-over-tls = []
 sqlite = ["rusqlite", "trust-dns-server/sqlite"]
 
 [dependencies]
-async-trait = "0.1.43"
-lazy_static = "1.2.0"
-futures = "0.3.5"
-openssl = { version = "0.10", features = ["v102", "v110"] }
-rand = "0.8"
-rusqlite = { version = "0.28.0", features = ["bundled"], optional = true }
-rustls = "0.20"
-time = "0.3"
-tokio = { version = "1.0", features = ["time", "rt"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["std", "fmt", "env-filter"] }
-trust-dns-client= { version = "0.22.0", path = "../../crates/client" }
-trust-dns-proto = { version = "0.22.0", path = "../../crates/proto", features = ["testing"] }
-trust-dns-resolver = { version = "0.22.0", path = "../../crates/resolver" }
-trust-dns-recursor = { version = "0.22.0", path = "../../crates/recursor" }
-trust-dns-server = { version = "0.22.0", path = "../../crates/server", features = ["testing"] }
-webpki-roots = { version = "0.22", optional = true }
+async-trait.workspace = true
+lazy_static.workspace = true
+futures.workspace = true
+openssl = { workspace = true, features = ["v102", "v110"] }
+rand.workspace = true
+rusqlite = { workspace = true, features = ["bundled"], optional = true }
+rustls.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["time", "rt"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["std", "fmt", "env-filter"] }
+trust-dns-client.workspace = true
+trust-dns-proto = { workspace = true, features = ["testing"] }
+trust-dns-resolver.workspace = true
+trust-dns-recursor.workspace = true
+trust-dns-server = { workspace = true, features = ["testing"] }
+webpki-roots = { workspace = true, optional = true }
 
 [dev-dependencies]
-futures = { version = "0.3.5", features = ["thread-pool"] }
-tokio = { version="1.0", features = ["macros", "rt"] }
+futures = { workspace = true, features = ["thread-pool"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

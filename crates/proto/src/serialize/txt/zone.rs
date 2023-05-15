@@ -1,25 +1,20 @@
-/*
- * Copyright (C) 2015 Benjamin Fry <benjaminfry@me.com>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-use std::collections::BTreeMap;
-use std::str::FromStr;
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
+//
+// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
+// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// copied, modified, or distributed except according to those terms.
 
-use crate::rr::{DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey};
-use crate::serialize::txt::errors::{ParseError, ParseErrorKind, ParseResult};
-use crate::serialize::txt::parse_rdata::RDataParser;
-use crate::serialize::txt::zone_lex::{Lexer, Token};
+use std::{collections::BTreeMap, str::FromStr};
+
+use crate::{
+    rr::{DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey},
+    serialize::txt::{
+        parse_rdata::RDataParser,
+        zone_lex::{Lexer, Token},
+        ParseError, ParseErrorKind, ParseResult,
+    },
+};
 
 /// ```text
 /// 5. ZONE FILES
@@ -349,7 +344,7 @@ impl Parser {
         record.set_data(Some(rdata));
 
         // add to the map
-        let key = RrKey::new(LowerName::new(record.name()), record.rr_type());
+        let key = RrKey::new(LowerName::new(record.name()), record.record_type());
         match rtype {
             RecordType::SOA => {
                 let set = record.into();
@@ -361,7 +356,7 @@ impl Parser {
                 // add a Vec if it's not there, then add the record to the list
                 let set = records
                     .entry(key)
-                    .or_insert_with(|| RecordSet::new(record.name(), record.rr_type(), 0));
+                    .or_insert_with(|| RecordSet::new(record.name(), record.record_type(), 0));
                 set.insert(record, 0);
             }
         }

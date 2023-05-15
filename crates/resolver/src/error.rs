@@ -1,4 +1,4 @@
-// Copyright 2015-2020 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,17 +7,21 @@
 
 //! Error types for the crate
 
-use std::cmp::Ordering;
-use std::{fmt, io, sync};
+use std::{cmp::Ordering, fmt, io, sync};
 
 use thiserror::Error;
 use tracing::debug;
-use trust_dns_proto::rr::Record;
 
-use crate::proto::error::{ProtoError, ProtoErrorKind};
-use crate::proto::op::{Query, ResponseCode};
-use crate::proto::xfer::retry_dns_handle::RetryableError;
-use crate::proto::xfer::DnsResponse;
+use crate::proto::{
+    error::{ProtoError, ProtoErrorKind},
+    op::{Query, ResponseCode},
+    rr::{
+        rdata::SOA,
+        resource::{Record, RecordRef},
+    },
+    xfer::{retry_dns_handle::RetryableError, DnsResponse},
+};
+
 #[cfg(feature = "backtrace")]
 use crate::proto::{trace, ExtBacktrace};
 
@@ -47,7 +51,7 @@ pub enum ResolveErrorKind {
         /// The query for which no records were found.
         query: Box<Query>,
         /// If an SOA is present, then this is an authoritative response or a referral to another nameserver, see the negative_type field.
-        soa: Option<Box<Record>>,
+        soa: Option<Box<Record<SOA>>>,
         /// negative ttl, as determined from DnsResponse::negative_ttl
         ///  this will only be present if the SOA was also present.
         negative_ttl: Option<u32>,
@@ -111,7 +115,7 @@ pub struct ResolveError {
 impl ResolveError {
     pub(crate) fn nx_error(
         query: Query,
-        soa: Option<Record>,
+        soa: Option<Record<SOA>>,
         negative_ttl: Option<u32>,
         response_code: ResponseCode,
         trusted: bool,
@@ -166,8 +170,9 @@ impl ResolveError {
             | response_code @ ResponseCode::BADALG
             | response_code @ ResponseCode::BADTRUNC
             | response_code @ ResponseCode::BADCOOKIE => {
-                let soa = response.soa().cloned();
-                let query = response.into_message().take_queries().drain(..).next().unwrap_or_default();
+                let response = response;
+                let soa = response.soa().as_ref().map(RecordRef::to_owned);
+                let query = response.queries().iter().next().cloned().unwrap_or_default();
                 let error_kind = ResolveErrorKind::NoRecordsFound {
                     query: Box::new(query),
                     soa: soa.map(Box::new),
@@ -186,7 +191,8 @@ impl ResolveError {
                 // TODO: if authoritative, this is cacheable, store a TTL (currently that requires time, need a "now" here)
                 // let valid_until = if response.authoritative() { now + response.negative_ttl() };
 
-                let soa = response.soa().cloned();
+                let  response = response;
+                let soa = response.soa().as_ref().map(RecordRef::to_owned);
                 let negative_ttl = response.negative_ttl();
                 // Note: improperly configured servers may do recursive lookups and return bad SOA
                 // records here via AS112 (blackhole-1.iana.org. etc)

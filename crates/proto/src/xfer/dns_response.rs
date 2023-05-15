@@ -1,4 +1,4 @@
-// Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,19 +7,23 @@
 
 //! `DnsResponse` wraps a `Message` and any associated connection details
 
-use std::future::Future;
-use std::io;
-use std::ops::Deref;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    convert::TryFrom,
+    future::Future,
+    io,
+    ops::Deref,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use futures_channel::mpsc;
-use futures_util::ready;
-use futures_util::stream::Stream;
+use futures_util::{ready, stream::Stream};
 
-use crate::error::{ProtoError, ProtoErrorKind, ProtoResult};
-use crate::op::{Message, ResponseCode};
-use crate::rr::{RData, Record, RecordType};
+use crate::{
+    error::{ProtoError, ProtoErrorKind, ProtoResult},
+    op::{Message, ResponseCode},
+    rr::{rdata::SOA, resource::RecordRef, RData, RecordType},
+};
 
 /// A stream returning DNS responses
 pub struct DnsResponseStream {
@@ -148,10 +152,10 @@ impl DnsResponse {
     }
 
     /// Retrieves the SOA from the response. This will only exist if it was an authoritative response.
-    pub fn soa(&self) -> Option<&Record> {
+    pub fn soa(&self) -> Option<RecordRef<'_, SOA>> {
         self.name_servers()
             .iter()
-            .find(|record| record.data().map(|d| d.is_soa()).unwrap_or(false))
+            .find_map(|record| RecordRef::try_from(record).ok())
     }
 
     /// Looks in the authority section for an SOA record from the response, and returns the negative_ttl, None if not available.
@@ -643,7 +647,7 @@ impl NegativeType {
 #[cfg(test)]
 mod tests {
     use crate::op::{Message, Query, ResponseCode};
-    use crate::rr::rdata::SOA;
+    use crate::rr::rdata::{A, CNAME, NS, SOA};
     use crate::rr::RData;
     use crate::rr::{Name, Record, RecordType};
 
@@ -682,23 +686,23 @@ mod tests {
     }
 
     fn an_cname_record() -> Record {
-        Record::from_rdata(an_example(), 88640, RData::CNAME(tripple_xx()))
+        Record::from_rdata(an_example(), 88640, RData::CNAME(CNAME(tripple_xx())))
     }
 
     fn ns1_record() -> Record {
-        Record::from_rdata(xx(), 88640, RData::NS(ns1()))
+        Record::from_rdata(xx(), 88640, RData::NS(NS(ns1())))
     }
 
     fn ns2_record() -> Record {
-        Record::from_rdata(xx(), 88640, RData::NS(ns2()))
+        Record::from_rdata(xx(), 88640, RData::NS(NS(ns2())))
     }
 
     fn ns1_a() -> Record {
-        Record::from_rdata(xx(), 88640, RData::A([127, 0, 0, 2].into()))
+        Record::from_rdata(xx(), 88640, RData::A(A::new(127, 0, 0, 2)))
     }
 
     fn ns2_a() -> Record {
-        Record::from_rdata(xx(), 88640, RData::A([127, 0, 0, 3].into()))
+        Record::from_rdata(xx(), 88640, RData::A(A::new(127, 0, 0, 3)))
     }
 
     fn soa() -> Record {
@@ -725,7 +729,7 @@ mod tests {
         message.add_answer(Record::from_rdata(
             Name::root(),
             88640,
-            RData::A([127, 0, 0, 2].into()),
+            RData::A(A::new(127, 0, 0, 2)),
         ));
 
         let response = DnsResponse::from_message(message).unwrap();

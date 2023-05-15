@@ -25,7 +25,7 @@ use trust_dns_proto::error::ProtoError;
 use trust_dns_proto::op::*;
 #[cfg(feature = "dnssec")]
 use trust_dns_proto::rr::Record;
-use trust_dns_proto::rr::{DNSClass, Name, RData, RecordType};
+use trust_dns_proto::rr::{rdata::A, DNSClass, Name, RData, RecordType};
 use trust_dns_proto::xfer::{DnsMultiplexer, DnsMultiplexerConnect};
 use trust_dns_server::authority::{Authority, Catalog};
 
@@ -122,11 +122,11 @@ where
 
     let record = &response.answers()[0];
     assert_eq!(record.name(), &name);
-    assert_eq!(record.rr_type(), RecordType::A);
+    assert_eq!(record.record_type(), RecordType::A);
     assert_eq!(record.dns_class(), DNSClass::IN);
 
     if let RData::A(ref address) = *record.data().unwrap() {
-        assert_eq!(address, &Ipv4Addr::new(93, 184, 216, 34))
+        assert_eq!(address, &A::new(93, 184, 216, 34))
     } else {
         panic!();
     }
@@ -139,10 +139,8 @@ where
     let name = Name::from_ascii("WWW.example.com").unwrap();
     let mut edns = Edns::new();
     // garbage subnet value, but lets check
-    edns.options_mut().insert(EdnsOption::Unknown(
-        EdnsCode::Subnet.into(),
-        vec![0, 1, 16, 0, 1, 2],
-    ));
+    edns.options_mut()
+        .insert(EdnsOption::Subnet("1.2.0.0/16".parse().unwrap()));
 
     // TODO: write builder
     let mut msg = Message::new();
@@ -172,7 +170,7 @@ where
 
     let record = &response.answers()[0];
     assert_eq!(record.name(), &name);
-    assert_eq!(record.rr_type(), RecordType::A);
+    assert_eq!(record.record_type(), RecordType::A);
     assert_eq!(record.dns_class(), DNSClass::IN);
     assert!(response.extensions().is_some());
     assert_eq!(
@@ -182,11 +180,11 @@ where
             .unwrap()
             .option(EdnsCode::Subnet)
             .unwrap(),
-        &EdnsOption::Unknown(EdnsCode::Subnet.into(), vec![0, 1, 16, 0, 1, 2])
+        &EdnsOption::Subnet("1.2.0.0/16".parse().unwrap())
     );
 
     if let RData::A(ref address) = *record.data().unwrap() {
-        assert_eq!(address, &Ipv4Addr::new(93, 184, 216, 34))
+        assert_eq!(address, &A::new(93, 184, 216, 34))
     } else {
         panic!();
     }
@@ -241,11 +239,11 @@ where
 
     let record = &response.answers()[0];
     assert_eq!(record.name(), &name);
-    assert_eq!(record.rr_type(), RecordType::A);
+    assert_eq!(record.record_type(), RecordType::A);
     assert_eq!(record.dns_class(), DNSClass::IN);
 
     if let RData::A(ref address) = *record.data().unwrap() {
-        assert_eq!(address, &Ipv4Addr::new(93, 184, 216, 34))
+        assert_eq!(address, &A::new(93, 184, 216, 34))
     } else {
         panic!();
     }
@@ -497,14 +495,14 @@ fn test_create() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     let result = client
         .create(record.clone(), origin.clone())
         .expect("create failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -519,7 +517,7 @@ fn test_create() {
 
     // will fail if already set and not the same value.
     let mut record = record;
-    record.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    record.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
 
     let result = client.create(record, origin).expect("create failed");
     assert_eq!(result.response_code(), ResponseCode::YXRRSet);
@@ -537,7 +535,7 @@ fn test_append() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     // first check the must_exist option
     let result = client
@@ -553,7 +551,7 @@ fn test_append() {
 
     // verify record contents
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -561,7 +559,7 @@ fn test_append() {
 
     // will fail if already set and not the same value.
     let mut record = record;
-    record.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    record.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
 
     let result = client
         .append(record.clone(), origin.clone(), true)
@@ -569,7 +567,7 @@ fn test_append() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 2);
@@ -578,7 +576,7 @@ fn test_append() {
         .answers()
         .iter()
         .any(|rr| if let RData::A(ip) = *rr.data().unwrap() {
-            ip == Ipv4Addr::new(100, 10, 100, 10)
+            ip == A::new(100, 10, 100, 10)
         } else {
             false
         }));
@@ -586,7 +584,7 @@ fn test_append() {
         .answers()
         .iter()
         .any(|rr| if let RData::A(ip) = rr.data().unwrap() {
-            *ip == Ipv4Addr::new(101, 11, 101, 11)
+            *ip == A::new(101, 11, 101, 11)
         } else {
             false
         }));
@@ -598,7 +596,7 @@ fn test_append() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 2);
@@ -616,7 +614,7 @@ fn test_compare_and_swap() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     let result = client
         .create(record.clone(), origin.clone())
@@ -625,7 +623,7 @@ fn test_compare_and_swap() {
 
     let current = record;
     let mut new = current.clone();
-    new.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    new.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
 
     let result = client
         .compare_and_swap(current.clone(), new.clone(), origin.clone())
@@ -633,7 +631,7 @@ fn test_compare_and_swap() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let result = client
-        .query(new.name(), new.dns_class(), new.rr_type())
+        .query(new.name(), new.dns_class(), new.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -641,14 +639,14 @@ fn test_compare_and_swap() {
         .answers()
         .iter()
         .any(|rr| if let RData::A(ip) = rr.data().unwrap() {
-            *ip == Ipv4Addr::new(101, 11, 101, 11)
+            *ip == A::new(101, 11, 101, 11)
         } else {
             false
         }));
 
     // check the it fails if tried again.
     let mut new = new;
-    new.set_data(Some(RData::A(Ipv4Addr::new(102, 12, 102, 12))));
+    new.set_data(Some(RData::A(A::new(102, 12, 102, 12))));
 
     let result = client
         .compare_and_swap(current, new.clone(), origin)
@@ -656,7 +654,7 @@ fn test_compare_and_swap() {
     assert_eq!(result.response_code(), ResponseCode::NXRRSet);
 
     let result = client
-        .query(new.name(), new.dns_class(), new.rr_type())
+        .query(new.name(), new.dns_class(), new.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -664,7 +662,7 @@ fn test_compare_and_swap() {
         .answers()
         .iter()
         .any(|rr| if let RData::A(ip) = rr.data().unwrap() {
-            *ip == Ipv4Addr::new(101, 11, 101, 11)
+            *ip == A::new(101, 11, 101, 11)
         } else {
             false
         }));
@@ -682,7 +680,7 @@ fn test_delete_by_rdata() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     // first check the must_exist option
     let result = client
@@ -697,7 +695,7 @@ fn test_delete_by_rdata() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let mut record = record;
-    record.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    record.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
     let result = client
         .append(record.clone(), origin.clone(), true)
         .expect("create failed");
@@ -710,7 +708,7 @@ fn test_delete_by_rdata() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NoError);
     assert_eq!(result.answers().len(), 1);
@@ -718,7 +716,7 @@ fn test_delete_by_rdata() {
         .answers()
         .iter()
         .any(|rr| if let RData::A(ip) = rr.data().unwrap() {
-            *ip == Ipv4Addr::new(100, 10, 100, 10)
+            *ip == A::new(100, 10, 100, 10)
         } else {
             false
         }));
@@ -736,7 +734,7 @@ fn test_delete_rrset() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     // first check the must_exist option
     let result = client
@@ -751,7 +749,7 @@ fn test_delete_rrset() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let mut record = record;
-    record.set_data(Some(RData::A(Ipv4Addr::new(101, 11, 101, 11))));
+    record.set_data(Some(RData::A(A::new(101, 11, 101, 11))));
     let result = client
         .append(record.clone(), origin.clone(), true)
         .expect("create failed");
@@ -764,7 +762,7 @@ fn test_delete_rrset() {
     assert_eq!(result.response_code(), ResponseCode::NoError);
 
     let result = client
-        .query(record.name(), record.dns_class(), record.rr_type())
+        .query(record.name(), record.dns_class(), record.record_type())
         .expect("query failed");
     assert_eq!(result.response_code(), ResponseCode::NXDomain);
     assert_eq!(result.answers().len(), 0);
@@ -773,6 +771,8 @@ fn test_delete_rrset() {
 #[cfg(all(feature = "dnssec", feature = "sqlite"))]
 #[test]
 fn test_delete_all() {
+    use trust_dns_proto::rr::rdata::AAAA;
+
     let catalog = Catalog::new();
     let (client, origin) = create_sig0_ready_client(catalog);
 
@@ -782,7 +782,7 @@ fn test_delete_all() {
         RecordType::A,
         Duration::minutes(5).whole_seconds() as u32,
     );
-    record.set_data(Some(RData::A(Ipv4Addr::new(100, 10, 100, 10))));
+    record.set_data(Some(RData::A(A::new(100, 10, 100, 10))));
 
     // first check the must_exist option
     let result = client
@@ -798,7 +798,7 @@ fn test_delete_all() {
 
     let mut record = record;
     record.set_rr_type(RecordType::AAAA);
-    record.set_data(Some(RData::AAAA(Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8))));
+    record.set_data(Some(RData::AAAA(AAAA::new(1, 2, 3, 4, 5, 6, 7, 8))));
     let result = client
         .create(record.clone(), origin.clone())
         .expect("create failed");

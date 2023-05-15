@@ -1,9 +1,5 @@
 [package]
 name = "trust-dns"
-version = "0.22.0"
-authors = ["Benjamin Fry <benjaminfry@me.com>"]
-edition = "2018"
-rust-version = "1.60.0"
 
 # A short blurb about the package. This is not rendered in any format when
 # uploaded to crates.io (aka this is not markdown)
@@ -17,25 +13,18 @@ Trust-DNS is a safe and secure DNS server with DNSSEC support.
  libraries.
 """
 
-# These URLs point to more information about the repository
 documentation = "https://docs.rs/trust-dns-server"
-homepage = "https://trust-dns.org/"
-repository = "https://github.com/bluejekyll/trust-dns"
-
-# This points to a file in the repository (relative to this Cargo.toml). The
-# contents of this file are stored and indexed in the registry.
 readme = "README.md"
 
-# This is a small list of keywords used to categorize and search for this
-# package.
-keywords = ["DNS", "BIND", "dig", "named", "dnssec"]
-categories = ["network-programming"]
-
-# This is a string description of the license for this package. Currently
-# crates.io will validate the license provided against a whitelist of known
-# license identifiers from https://spdx.org/licenses/. Multiple licenses can
-# be separated with a `/`
-license = "MIT/Apache-2.0"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
 
 [badges]
 #github-actions = { repository = "bluejekyll/trust-dns", branch = "main", workflow = "test" }
@@ -80,20 +69,20 @@ path = "src/trust-dns.rs"
 # - suggestion for advanced help with error in cli
 # - derive for clap derive api
 # - help to generate --help
-clap = { version = "4.0", default-features = false, features = ["std", "cargo", "help", "derive", "suggestions"] }
-futures = { version = "0.3.5", default-features = false, features = ["std"] }
-rustls = { version = "0.20", optional = true }
-time = "0.3"
-tracing = "0.1.30"
-tracing-subscriber = { version = "0.3", features = ["std", "fmt", "env-filter"] }
-tokio = { version = "1.21", features = ["time", "rt"] }
-trust-dns-client = { version = "0.22.0", path = "../crates/client" }
-trust-dns-proto = { version = "0.22.0", path = "../crates/proto" }
-trust-dns-server = { version = "0.22.0", path = "../crates/server" }
+clap = { workspace = true, default-features = false, features = ["std", "cargo", "help", "derive", "suggestions"] }
+futures = { workspace = true, default-features = false, features = ["std"] }
+rustls = { workspace = true, optional = true }
+time.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["std", "fmt", "env-filter"] }
+tokio = { workspace = true, features = ["time", "rt"] }
+trust-dns-client.workspace = true
+trust-dns-proto.workspace = true
+trust-dns-server.workspace = true
 
 [dev-dependencies]
-native-tls = "0.2"
-regex = "1.3.4"
-trust-dns-proto = { version = "0.22.0", path = "../crates/proto", features = ["testing", "dns-over-native-tls"] }
-trust-dns-resolver = { version = "0.22.0", path = "../crates/resolver" }
-webpki-roots = "0.22.1"
+native-tls.workspace = true
+regex.workspace = true
+trust-dns-proto = { workspace = true, features = ["testing", "dns-over-native-tls"] }
+trust-dns-resolver.workspace = true
+webpki-roots.workspace = true

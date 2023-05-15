@@ -1,4 +1,4 @@
-// Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
+// Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
 // http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -7,13 +7,18 @@
 
 //! SVCB records in presentation format
 
-use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
-use crate::rr::rdata::svcb::*;
-use crate::rr::Name;
-use crate::serialize::txt::errors::{ParseError, ParseErrorKind, ParseResult};
-use crate::serialize::txt::{Lexer, Token};
+use crate::{
+    rr::{
+        rdata::{svcb::*, A, AAAA},
+        Name,
+    },
+    serialize::txt::{
+        errors::{ParseError, ParseErrorKind, ParseResult},
+        Lexer, Token,
+    },
+};
 
 /// [draft-ietf-dnsop-svcb-https-03 SVCB and HTTPS RRs for DNS, February 2021](https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-03#section-2.2)
 ///
@@ -233,7 +238,7 @@ fn parse_ipv4_hint(value: Option<&str>) -> Result<SvcParamValue, ParseError> {
         ParseError::from(ParseErrorKind::Message("expected at least one ipv4 hint"))
     })?;
 
-    let hints = parse_list::<Ipv4Addr>(value)?;
+    let hints = parse_list::<A>(value)?;
     Ok(SvcParamValue::Ipv4Hint(IpHint(hints)))
 }
 
@@ -271,7 +276,7 @@ fn parse_ipv6_hint(value: Option<&str>) -> Result<SvcParamValue, ParseError> {
         ParseError::from(ParseErrorKind::Message("expected at least one ipv6 hint"))
     })?;
 
-    let hints = parse_list::<Ipv6Addr>(value)?;
+    let hints = parse_list::<AAAA>(value)?;
     Ok(SvcParamValue::Ipv6Hint(IpHint(hints)))
 }
 
@@ -319,15 +324,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::rr::RData;
-
-    use crate::serialize::txt::{Lexer, Parser};
+    use crate::{
+        rr::{rdata::HTTPS, RecordData},
+        serialize::txt::{Lexer, Parser},
+    };
 
     use super::*;
 
     // this assumes that only a single record is parsed
     // TODO: make Parser return an iterator over all records in a stream.
-    fn parse_record(txt: &str) -> SVCB {
+    fn parse_record<D: RecordData>(txt: &str) -> D {
         let lex = Lexer::new(txt);
         let mut parser = Parser::new();
 
@@ -341,14 +347,14 @@ mod tests {
             .next()
             .unwrap()
             .data()
-            .and_then(RData::as_svcb)
-            .expect("Not an SVCB record")
+            .and_then(D::try_borrow)
+            .expect("Not the correct record")
             .clone()
     }
 
     #[test]
     fn test_parsing() {
-        let svcb = parse_record("crypto.cloudflare.com. 299 IN SVCB 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
+        let svcb: SVCB = parse_record("crypto.cloudflare.com. 299 IN SVCB 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
 
         assert_eq!(svcb.svc_priority(), 1);
         assert_eq!(*svcb.target_name(), Name::root());
@@ -365,10 +371,7 @@ mod tests {
         assert_eq!(SvcParamKey::Ipv4Hint, param.0);
         assert_eq!(
             param.1.as_ipv4_hint().expect("ipv4hint").0,
-            &[
-                Ipv4Addr::from([162, 159, 135, 79]),
-                Ipv4Addr::from([162, 159, 136, 79])
-            ]
+            &[A::new(162, 159, 135, 79), A::new(162, 159, 136, 79)]
         );
 
         // echconfig
@@ -385,15 +388,15 @@ mod tests {
         assert_eq!(
             param.1.as_ipv6_hint().expect("ipv6hint").0,
             &[
-                Ipv6Addr::from([0x2606, 0x4700, 0x7, 0, 0, 0, 0xa29f, 0x874f]),
-                Ipv6Addr::from([0x2606, 0x4700, 0x7, 0, 0, 0, 0xa29f, 0x884f])
+                AAAA::new(0x2606, 0x4700, 0x7, 0, 0, 0, 0xa29f, 0x874f),
+                AAAA::new(0x2606, 0x4700, 0x7, 0, 0, 0, 0xa29f, 0x884f)
             ]
         );
     }
 
     #[test]
     fn test_parse_display() {
-        let svcb = parse_record("crypto.cloudflare.com. 299 IN SVCB 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
+        let svcb: SVCB = parse_record("crypto.cloudflare.com. 299 IN SVCB 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
 
         let svcb_display = svcb.to_string();
 
@@ -407,7 +410,7 @@ mod tests {
     /// sanity check for https
     #[test]
     fn test_parsing_https() {
-        let svcb = parse_record("crypto.cloudflare.com. 299 IN HTTPS 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
+        let svcb: HTTPS = parse_record("crypto.cloudflare.com. 299 IN HTTPS 1 . alpn=h2, ipv4hint=162.159.135.79,162.159.136.79, echconfig=\"/gkAQwATY2xvdWRmbGFyZS1lc25pLmNvbQAgUbBtC3UeykwwE6C87TffqLJ/1CeaAvx3iESGyds85l8AIAAEAAEAAQAAAAA=\" ipv6hint=2606:4700:7::a29f:874f,2606:4700:7::a29f:884f,");
 
         assert_eq!(svcb.svc_priority(), 1);
         assert_eq!(*svcb.target_name(), Name::root());

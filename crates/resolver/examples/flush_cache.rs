@@ -1,6 +1,6 @@
 #![recursion_limit = "128"]
 
-#[cfg(feature = "tokio-runtime")]
+#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 fn main() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -11,16 +11,17 @@ fn main() {
         });
 }
 
-#[cfg(feature = "tokio-runtime")]
+#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 async fn tokio_main() {
-    use trust_dns_resolver::{TokioAsyncResolver, TokioHandle};
+    use trust_dns_resolver::name_server::TokioRuntimeProvider;
+    use trust_dns_resolver::TokioAsyncResolver;
 
     let resolver = {
         // To make this independent, if targeting macOS, BSD, Linux, or Windows, we can use the system's configuration:
         #[cfg(any(unix, windows))]
         {
             // use the system resolver configuration
-            TokioAsyncResolver::from_system_conf(TokioHandle::default())
+            TokioAsyncResolver::from_system_conf(TokioRuntimeProvider::new())
         }
 
         // For other operating systems, we can use one of the preconfigured definitions
@@ -57,13 +58,10 @@ async fn tokio_main() {
     drop(resolver);
 }
 
-#[cfg(feature = "tokio-runtime")]
-async fn resolve_list<
-    C: trust_dns_proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
-    P: trust_dns_resolver::ConnectionProvider<Conn = C>,
->(
+#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
+async fn resolve_list<P: trust_dns_resolver::name_server::RuntimeProvider>(
     names: &[&str],
-    resolver: &trust_dns_resolver::AsyncResolver<C, P>,
+    resolver: &trust_dns_resolver::AsyncResolver<P>,
 ) -> tokio::time::Duration {
     use tokio::time::Instant;
     let start_time = Instant::now();
@@ -95,7 +93,7 @@ async fn resolve_list<
     start_time.elapsed()
 }
 
-#[cfg(not(feature = "tokio-runtime"))]
+#[cfg(not(all(feature = "tokio-runtime", feature = "system-config")))]
 fn main() {
     println!("tokio-runtime feature must be enabled")
 }
